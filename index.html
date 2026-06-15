@@ -44,7 +44,7 @@
     z-index: 10; box-shadow: 0 0 6px rgba(0,0,0,0.1);
   }
 
-  iframe { width: 100%; height: 100%; border: none; display: block; }
+  img { width: 100%; height: 100%; object-fit: contain; display: block; }
 
   .controls {
     display: flex; align-items: center; gap: 1rem; margin-top: 1rem;
@@ -77,10 +77,10 @@
 // CONFIGUREZ VOS PAGES ICI
 // ==============================
 const pages = [
-  { url: "https://raw.githubusercontent.com/ManonM15/Flipbook-sharepoint/main/LargeSolutionGuide1.jpg" },
-  { url: "https://raw.githubusercontent.com/ManonM15/Flipbook-sharepoint/main/LargeSolutionGuide2.jpg" },
-  { url: "https://raw.githubusercontent.com/ManonM15/Flipbook-sharepoint/main/LargeSolutionGuide3.jpg" },
-  { url: "https://raw.githubusercontent.com/ManonM15/Flipbook-sharepoint/main/LargeSolutionGuide4.jpg" },
+  { url: "https://raw.githubusercontent.com/ManonM15/Flipbook-sharepoint/main/LargeSolutionGuide1.png.jpg" },
+  { url: "https://raw.githubusercontent.com/ManonM15/Flipbook-sharepoint/main/LargeSolutionGuide2.png.jpg" },
+  { url: "https://raw.githubusercontent.com/ManonM15/Flipbook-sharepoint/main/LargeSolutionGuide3.png.jpg" },
+  { url: "https://raw.githubusercontent.com/ManonM15/Flipbook-sharepoint/main/LargeSolutionGuide4.png.jpg" },
 ];
 // ==============================
 
@@ -91,20 +91,20 @@ const prev = document.getElementById('prev');
 const next = document.getElementById('next');
 const indicator = document.getElementById('indicator');
 
-function makeIframe(url) {
-  return `<iframe src="${url}" allowfullscreen></iframe>`;
+function makeImage(url) {
+  return `<img src="${url}" alt="Page">`;
 }
 
 function render() {
-  leftStatic.innerHTML = makeIframe(pages[current].url);
+  leftStatic.innerHTML = makeImage(pages[current].url);
   document.querySelectorAll('.page').forEach(p => p.remove());
 
   if (pages[current + 1]) {
     const p = document.createElement('div');
     p.className = 'page';
     p.innerHTML = `
-      <div class="page-front">${makeIframe(pages[current + 1].url)}</div>
-      <div class="page-back">${makeIframe(pages[current].url)}</div>`;
+      <div class="page-front">${makeImage(pages[current + 1].url)}</div>
+      <div class="page-back">${makeImage(pages[current].url)}</div>`;
     book.appendChild(p);
   }
 
@@ -141,4 +141,5 @@ next.addEventListener('click', goNext);
 render();
 </script>
 </body>
+</html>
 </html>
