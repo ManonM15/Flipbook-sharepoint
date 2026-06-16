@@ -13,20 +13,25 @@
     --turn-ease: cubic-bezier(.12,.65,.1,1);
 
     /* Reliure et ombres (reliure plus fine au centre) */
-    --spine-width: 8px; /* réduit pour une reliure moins épaisse visuellement */
+    --spine-width: 5px; /* réduit pour une reliure moins épaisse visuellement */
     --spine-tint: rgba(0,0,0,0.10);
     --edge-shadow: rgba(0,0,0,0.12);
     --inner-shadow: rgba(0,0,0,0.16);
     --page-line: rgba(0, 0, 0, 0.10);
 
     /* Tranche de pages (pile latérale) */
-    --fore-edge-width: 18px;
+    --fore-edge-width: 15px;
     --fore-edge-line: rgba(0,0,0,0.10);
     --fore-edge-deep: rgba(0,0,0,0.18);
 
     /* Fondu des images lors du rendu static */
     --img-fade-duration: 220ms;
     --img-fade-ease: ease-out;
+
+    /* Contrôle de la courbure statique des pages (bords extérieurs) */
+    --page-curve-rotate: 2.4deg; /* augmentez pour plus de courbure visuelle */
+    --page-curve-highlight: rgba(255,255,255,0.55);
+    --page-curve-shadow: rgba(0,0,0,0.14);
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -54,7 +59,7 @@
     will-change: transform;
   }
 
-  /* Reliure (spine) centrale plus fine et adoucie */
+  /* Reliure (spine) centrale affinée et adoucie */
   .spine {
     position: absolute;
     top: 0;
@@ -63,14 +68,28 @@
     width: var(--spine-width);
     pointer-events: none;
     z-index: 3;
-    /* Ombre très légère, sans épaisseur marquée au centre */
+
+    /* Dégradés adoucis: peu de contraste au centre, fondu large */
     background:
-      radial-gradient(70% 100% at 50% 50%, rgba(0,0,0,0.12) 0%, rgba(0,0,0,0.04) 40%, rgba(0,0,0,0.0) 70%),
-      linear-gradient(180deg, rgba(0,0,0,0.05), rgba(0,0,0,0.02) 30%, rgba(0,0,0,0.04) 70%, rgba(0,0,0,0.08));
-    border-left: 1px solid rgba(0,0,0,0.07);
-    border-right: 1px solid rgba(0,0,0,0.07);
-    box-shadow: inset 0 0 16px var(--spine-tint);
-    opacity: 0.9;
+      radial-gradient(60% 120% at 50% 50%,
+        rgba(0,0,0,0.10) 0%,
+        rgba(0,0,0,0.05) 35%,
+        rgba(0,0,0,0.025) 55%,
+        rgba(0,0,0,0.0) 80%
+      ),
+      linear-gradient(180deg,
+        rgba(0,0,0,0.04) 0%,
+        rgba(0,0,0,0.02) 40%,
+        rgba(0,0,0,0.03) 100%
+      );
+
+    /* Bords très subtils (évite l’effet « barre épaisse ») */
+    border-left: 1px solid rgba(0,0,0,0.05);
+    border-right: 1px solid rgba(0,0,0,0.05);
+
+    /* Légère ombre interne, réduite */
+    box-shadow: inset 0 0 10px rgba(0,0,0,0.08);
+    opacity: 0.85;
   }
 
   .page {
@@ -87,54 +106,95 @@
     will-change: transform;
     transform-style: preserve-3d;
   }
-  .page.left  { border-radius: var(--book-radius) 0 0 var(--book-radius); border-right: none; }
-  .page.right { border-radius: 0 var(--book-radius) var(--book-radius) 0; border-left: none; }
+  /* Courbure statique pour un effet livre plus réaliste */
+  .page.left  {
+    border-radius: var(--book-radius) 0 0 var(--book-radius);
+    border-right: none;
+    transform-origin: right center;
+    transform: perspective(1600px) rotateY(var(--page-curve-rotate));
+  }
+  .page.right {
+    border-radius: 0 var(--book-radius) var(--book-radius) 0;
+    border-left: none;
+    transform-origin: left center;
+    transform: perspective(1600px) rotateY(calc(-1 * var(--page-curve-rotate)));
+  }
 
-  /* Effet d'épaisseur: ombre côté extérieur des pages (rebords) */
+  /* Effet de courbure: ombre + highlight sur le bord extérieur des pages */
   .page.left::after,
   .page.right::after {
     content: "";
     position: absolute;
     top: 0;
     bottom: 0;
-    width: 26px;
+    width: 44px; /* un peu plus large pour matérialiser la courbe */
     pointer-events: none;
     z-index: 1;
   }
   .page.left::after {
     right: 0;
-    background: linear-gradient(90deg, rgba(0,0,0,0) 0%, var(--edge-shadow) 60%, rgba(0,0,0,0.08) 100%);
+    background:
+      linear-gradient(90deg,
+        rgba(0,0,0,0.00) 0%,
+        var(--page-curve-shadow) 65%,
+        rgba(0,0,0,0.18) 100%
+      ),
+      radial-gradient(60% 100% at 100% 50%,
+        var(--page-curve-highlight) 0%,
+        rgba(255,255,255,0.0) 70%
+      );
   }
   .page.right::after {
     left: 0;
-    background: linear-gradient(270deg, rgba(0,0,0,0) 0%, var(--edge-shadow) 60%, rgba(0,0,0,0.08) 100%);
+    background:
+      linear-gradient(270deg,
+        rgba(0,0,0,0.00) 0%,
+        var(--page-curve-shadow) 65%,
+        rgba(0,0,0,0.18) 100%
+      ),
+      radial-gradient(60% 100% at 0% 50%,
+        var(--page-curve-highlight) 0%,
+        rgba(255,255,255,0.0) 70%
+      );
   }
 
-  /* Ombre interne près de la reliure + stries “papier” (gouttière) */
+  /* Gouttière plus fine et estompée (près de la reliure) */
   .page.left::before,
   .page.right::before {
     content: "";
     position: absolute;
     top: 0;
     bottom: 0;
-    width: 36px; /* légèrement réduit pour un centre moins épais */
+    width: 14px;  /* réduit pour une gouttière moins épaisse */
     pointer-events: none;
     z-index: 1;
-    filter: blur(0.1px);
+    opacity: 0.75; /* plus estompé */
   }
   .page.left::before {
     right: -1px;
     background:
-      linear-gradient(90deg, rgba(0,0,0,0), var(--inner-shadow)),
-      repeating-linear-gradient(90deg, transparent 0 3px, var(--page-line) 3px 4px);
-    opacity: 0.9;
+      linear-gradient(90deg,
+        rgba(0,0,0,0.00) 0%,
+        rgba(0,0,0,0.10) 70%,
+        rgba(0,0,0,0.16) 100%
+      ),
+      repeating-linear-gradient(90deg,
+        transparent 0 3px,
+        var(--page-line) 3px 4px
+      );
   }
   .page.right::before {
     left: -1px;
     background:
-      linear-gradient(270deg, rgba(0,0,0,0), var(--inner-shadow)),
-      repeating-linear-gradient(90deg, transparent 0 3px, var(--page-line) 3px 4px);
-    opacity: 0.9;
+      linear-gradient(270deg,
+        rgba(0,0,0,0.00) 0%,
+        rgba(0,0,0,0.10) 70%,
+        rgba(0,0,0,0.16) 100%
+      ),
+      repeating-linear-gradient(90deg,
+        transparent 0 3px,
+        var(--page-line) 3px 4px
+      );
   }
 
   /* Tranche de pages extérieure (pile latérale) */
@@ -234,7 +294,7 @@
   }
   .flip::before {
     /* liseré lumineux côté bord pour simuler le “curl” */
-    width: 22%;
+    width: 40%;
     right: 0;
     background: radial-gradient(120% 80% at 100% 50%, rgba(255,255,255,0.75), rgba(255,255,255,0.0) 60%);
     opacity: 0.0;
@@ -317,7 +377,7 @@
     font-size: 13px;
     background: rgba(0,0,0,0.4);
     padding: 6px 10px;
-    border-radius: 6px;
+    border-radius: 6px.
   }
 
   /* Réduction des animations si préférences utilisateur */
