@@ -1,163 +1,227 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-<meta charset="UTF-8">
-
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
 <style>
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; background: #f5f5f5; }
 
-body {
-  font-family: Arial;
-  background: #f5f5f5;
-}
+  /* Scène et livre */
+  .book-scene {
+    width: 100%;
+    height: 70vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    perspective: 1500px;
+  }
+  .book {
+    width: min(1100px, 95%);
+    height: 100%;
+    display: flex;
+    position: relative;
+    touch-action: pan-y; /* autorise défilement vertical, gère swipe horizontal */
+  }
 
-/* 📌 FULL SHAREPOINT WIDTH */
-.book-scene {
-  width: 100%;
-  height: 70vh;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  perspective: 2000px;
-}
+  /* Pages */
+  .page {
+    width: 50%;
+    height: 100%;
+    background: #fff;
+    border: 1px solid #ddd;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    user-select: none;
+  }
+  .page.left  { border-radius: 8px 0 0 8px; border-right: none; }
+  .page.right { border-radius: 0 8px 8px 0; border-left: none; }
 
-.book {
-  width: min(1100px, 95%);
-  height: 100%;
-  display: flex;
-  position: relative;
-}
+  /* Images */
+  .page img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain; /* conserve le ratio */
+    display: block;
+    -webkit-user-drag: none;
+    user-drag: none;
+    pointer-events: none; /* évite sélection/drag accidentels */
+  }
 
-/* 📄 PAGES */
-.page {
-  width: 50%;
-  height: 100%;
-  background: white;
-  border: 1px solid #ddd;
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.page.left {
-  border-radius: 8px 0 0 8px;
-  border-right: none;
-}
-
-.page.right {
-  border-radius: 0 8px 8px 0;
-  border-left: none;
-}
-
-/* image */
-img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-
-/* controls */
-.controls {
-  display: flex;
-  justify-content: center;
-  gap: 1rem;
-  margin-top: 1rem;
-}
-
-button {
-  padding: 8px 20px;
-  border: 1px solid #ccc;
-  background: white;
-  cursor: pointer;
-  border-radius: 6px;
-}
-
-button:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-#indicator {
-  display: flex;
-  align-items: center;
-}
+  /* Contrôles */
+  .controls {
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+    margin: 1rem auto;
+    align-items: center;
+  }
+  button {
+    padding: 8px 20px;
+    border: 1px solid #ccc;
+    background: #fff;
+    cursor: pointer;
+    border-radius: 6px;
+  }
+  button:disabled { opacity: 0.4; cursor: default; }
+  #indicator { min-width: 130px; text-align: center; }
 </style>
 </head>
-
 <body>
 
-<div class="book-scene">
-  <div class="book">
-    <div class="page left" id="left"></div>
-    <div class="page right" id="right"></div>
+<div class="book-scene" aria-label="Lecteur de livre">
+  <div class="book" role="region" aria-live="polite" id="book">
+    <div class="page left"  id="left"  aria-label="Page gauche"></div>
+    <div class="page right" id="right" aria-label="Page droite"></div>
   </div>
 </div>
 
 <div class="controls">
-  <button id="prev">← Précédent</button>
-  <span id="indicator"></span>
-  <button id="next">Suivant →</button>
+  <button id="prev" aria-label="Page précédente">← Précédent</button>
+  <span id="indicator" aria-live="polite"></span>
+  <button id="next" aria-label="Page suivante">Suivant →</button>
 </div>
 
 <script>
+/*
+  Hypothèses de mise en page:
+  - Image 1 = 1re de couverture (seule à droite)
+  - Pages internes en doubles: (2 à gauche, 3 à droite), (4 à gauche, 5 à droite), ...
+  - Si nombre d’images pair, dernière image = 4e de couverture (seule à gauche)
+  - Si nombre impair, dernière page seule à droite
+  - Accepte des URLs finissant par ".png.jpg" si le serveur renvoie un Content-Type image
+*/
 
-const pages = [
-  { url: "https://raw.githubusercontent.com/ManonM15/Flipbook-sharepoint/main/LargeSolutionGuide1.png.jpg" },
-  { url: "https://raw.githubusercontent.com/ManonM15/Flipbook-sharepoint/main/LargeSolutionGuide2.png.jpg" },
-  { url: "https://raw.githubusercontent.com/ManonM15/Flipbook-sharepoint/main/LargeSolutionGuide3.png.jpg" },
-  { url: "https://raw.githubusercontent.com/ManonM15/Flipbook-sharepoint/main/LargeSolutionGuide4.png.jpg" },
+/* 1) DÉFINIR LES PAGES (chaînes OU objets { url }) */
+const pageInputs = [
+  // Exemples - remplacez par vos URLs réelles SharePoint/externes
+  url: "https://raw.githubusercontent.com/ManonM15/Flipbook-sharepoint/main/LargeSolutionGuide1.png.jpg" 
+  url: "https://raw.githubusercontent.com/ManonM15/Flipbook-sharepoint/main/LargeSolutionGuide2.png.jpg" 
+  url: "https://raw.githubusercontent.com/ManonM15/Flipbook-sharepoint/main/LargeSolutionGuide3.png.jpg" 
+  url: "https://raw.githubusercontent.com/ManonM15/Flipbook-sharepoint/main/LargeSolutionGuide4.png.jpg" 
 ];
 
-let index = 0;
+/* 2) NORMALISATION ET PRÉCHARGEMENT */
+function toUrl(entry) {
+  // Accepte soit "https://...img" soit { url: "https://...img" }
+  if (typeof entry === "string") return entry;
+  if (entry && typeof entry === "object" && typeof entry.url === "string") return entry.url;
+  return null;
+}
+const pageUrls = pageInputs.map(toUrl).filter(Boolean);
 
-const left = document.getElementById("left");
-const right = document.getElementById("right");
-const prev = document.getElementById("prev");
-const next = document.getElementById("next");
+// Préchargement basique
+pageUrls.forEach(src => {
+  const img = new Image();
+  img.src = src;
+});
+
+/* 3) CONSTRUCTION DES VUES { left, right } */
+function buildViews(urls) {
+  const n = urls.length;
+  const views = [];
+  if (n === 0) return views;
+
+  // Vue 0: couverture seule à droite
+  views.push({ left: null, right: urls[0] });
+
+  // Vues internes
+  let i = 1;
+  while (i < n) {
+    const left = urls[i] || null;
+    const right = urls[i + 1] || null;
+
+    // Cas dernier orphelin (pas de paire)
+    if (left && !right) {
+      if (n % 2 === 0) {
+        // Nombre total pair -> dernière seule à gauche (4e de couverture)
+        views.push({ left: left, right: null });
+      } else {
+        // Nombre total impair -> dernière seule à droite
+        views.push({ left: null, right: left });
+      }
+      break;
+    }
+
+    // Paire classique
+    views.push({ left, right });
+    i += 2;
+  }
+
+  return views;
+}
+
+const views = buildViews(pageUrls);
+
+/* 4) RENDU ET INTERACTIONS */
+const leftEl = document.getElementById("left");
+const rightEl = document.getElementById("right");
+const prevBtn = document.getElementById("prev");
+const nextBtn = document.getElementById("next");
 const indicator = document.getElementById("indicator");
+const bookEl = document.getElementById("book");
+
+let viewIndex = 0;
+
+function imgTag(src, alt) {
+  // Fallback visuel si l’image échoue
+  const safeAlt = alt || "Page";
+  return `<img src="${src}" alt="${safeAlt}" loading="lazy" decoding="async"
+    draggable="false"
+    onerror="this.onerror=null; this.style.opacity=0.3; this.alt='Image indisponible';" />`;
+}
 
 function render() {
+  const view = views[viewIndex] || { left: null, right: null };
+  leftEl.innerHTML = view.left ? imgTag(view.left, "Page gauche") : "";
+  rightEl.innerHTML = view.right ? imgTag(view.right, "Page droite") : "";
 
-  // 📌 PAGE GAUCHE = page précédente (si existe)
-  left.innerHTML = index > 0
-    ? `<img src="${pages[index - 1]}">`
-    : "";
-
-  // 📌 PAGE DROITE = page actuelle
-  right.innerHTML = pages[index]
-    ? `<img src="${pages[index]}">`
-    : "";
-
-  indicator.textContent = `Page ${index + 1} / ${pages.length}`;
-
-  prev.disabled = index === 0;
-  next.disabled = index >= pages.length - 1;
+  indicator.textContent = `Vue ${viewIndex + 1} / ${views.length}`;
+  prevBtn.disabled = viewIndex === 0;
+  nextBtn.disabled = viewIndex >= views.length - 1;
 }
 
 function nextPage() {
-  if (index < pages.length - 1) {
-    index++;
+  if (viewIndex < views.length - 1) {
+    viewIndex++;
     render();
   }
 }
-
 function prevPage() {
-  if (index > 0) {
-    index--;
+  if (viewIndex > 0) {
+    viewIndex--;
     render();
   }
 }
 
-prev.addEventListener("click", prevPage);
-next.addEventListener("click", nextPage);
+prevBtn.addEventListener("click", prevPage);
+nextBtn.addEventListener("click", nextPage);
+
+// Navigation clavier (← →)
+document.addEventListener("keydown", (e) => {
+  if (e.key === "ArrowRight") nextPage();
+  if (e.key === "ArrowLeft") prevPage();
+});
+
+// Gestes tactiles (swipe)
+let touchStartX = 0;
+bookEl.addEventListener("touchstart", (e) => {
+  if (e.touches && e.touches.length === 1) touchStartX = e.touches[0].clientX;
+}, { passive: true });
+
+bookEl.addEventListener("touchend", (e) => {
+  if (!touchStartX) return;
+  const endX = (e.changedTouches && e.changedTouches[0]?.clientX) || 0;
+  const dx = endX - touchStartX;
+  // Seuil minimal pour considérer un geste
+  if (dx < -40) nextPage();
+  else if (dx > 40) prevPage();
+  touchStartX = 0;
+}, { passive: true });
 
 render();
-
 </script>
 
 </body>
