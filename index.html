@@ -4,32 +4,62 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <style>
+  :root{
+    --book-max-width: 1100px;
+    --book-radius: 8px;
+    --spine-width: 12px;
+    --spine-color: #d7d2cc;
+    --edge-shadow: rgba(0,0,0,0.08);
+    --inner-shadow: rgba(0,0,0,0.12);
+    --turn-duration: 650ms;
+    --turn-ease: cubic-bezier(.2,.6,.2,1);
+  }
+
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: Arial, sans-serif; background: #f5f5f5; }
 
-  /* Scène et livre */
   .book-scene {
     width: 100%;
-    height: 70vh;
+    height: 72vh;
     display: flex;
     justify-content: center;
     align-items: center;
-    perspective: 1500px;
+    perspective: 1600px;
   }
+
   .book {
-    width: min(1100px, 95%);
+    width: min(var(--book-max-width), 95%);
     height: 100%;
     display: flex;
     position: relative;
-    touch-action: pan-y; /* autorise défilement vertical, gère swipe horizontal */
+    touch-action: pan-y;
+    border-radius: var(--book-radius);
+    /* Ombre globale pour donner une assise */
+    box-shadow: 0 12px 28px rgba(0,0,0,0.12);
+    background: #fff;
   }
 
-  /* Pages */
+  /* Reliure (spine) centrale */
+  .spine {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: calc(50% - var(--spine-width)/2);
+    width: var(--spine-width);
+    pointer-events: none;
+    border-left: 1px solid rgba(0,0,0,0.07);
+    border-right: 1px solid rgba(0,0,0,0.07);
+    background:
+      linear-gradient(180deg, rgba(0,0,0,0.06), rgba(0,0,0,0.02) 18%, rgba(255,255,255,0) 45%, rgba(0,0,0,0.03) 82%, rgba(0,0,0,0.08));
+    opacity: 0.95;
+    z-index: 2;
+  }
+
   .page {
     width: 50%;
     height: 100%;
     background: #fff;
-    border: 1px solid #ddd;
+    border: 1px solid #e6e6e6;
     overflow: hidden;
     display: flex;
     align-items: center;
@@ -37,32 +67,93 @@
     user-select: none;
     position: relative;
   }
-  .page.left  { border-radius: 8px 0 0 8px; border-right: none; }
-  .page.right { border-radius: 0 8px 8px 0; border-left: none; }
+  .page.left  { border-radius: var(--book-radius) 0 0 var(--book-radius); border-right: none; }
+  .page.right { border-radius: 0 var(--book-radius) var(--book-radius) 0; border-left: none; }
 
-  /* Images */
+  /* Effet d'épaisseur: ombre côté extérieur des pages */
+  .page.left::after,
+  .page.right::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 18px;
+    pointer-events: none;
+    z-index: 1;
+  }
+  .page.left::after {
+    right: 0;
+    background: linear-gradient(90deg, rgba(0,0,0,0) 0%, var(--edge-shadow) 60%, rgba(0,0,0,0.05) 100%);
+  }
+  .page.right::after {
+    left: 0;
+    background: linear-gradient(270deg, rgba(0,0,0,0) 0%, var(--edge-shadow) 60%, rgba(0,0,0,0.05) 100%);
+  }
+
+  /* Ombre interne près de la reliure pour renforcer la séparation */
+  .page.left::before,
+  .page.right::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 26px;
+    pointer-events: none;
+    z-index: 1;
+  }
+  .page.left::before {
+    right: -1px;
+    background: linear-gradient(90deg, rgba(0,0,0,0), var(--inner-shadow));
+  }
+  .page.right::before {
+    left: -1px;
+    background: linear-gradient(270deg, rgba(0,0,0,0), var(--inner-shadow));
+  }
+
   .page img {
     width: 100%;
     height: 100%;
-    object-fit: contain; /* conserve le ratio */
+    object-fit: contain;
     display: block;
     -webkit-user-drag: none;
     user-drag: none;
-    pointer-events: none; /* évite sélection/drag accidentels */
+    pointer-events: none;
+    position: relative;
+    z-index: 0;
   }
 
-  /* Overlay d'erreur image */
-  .img-error {
+  /* Feuille animée pour le tourne-page */
+  .flip {
     position: absolute;
-    bottom: 8px;
-    left: 8px;
-    right: 8px;
-    background: rgba(220, 53, 69, 0.9);
-    color: #fff;
-    padding: 6px 8px;
-    font-size: 12px;
-    border-radius: 4px;
+    top: 0;
+    bottom: 0;
+    width: 50%;
+    background: #fff;
+    overflow: hidden;
+    transform-style: preserve-3d;
+    backface-visibility: hidden;
+    z-index: 3;
   }
+
+  .flip img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    pointer-events: none;
+  }
+
+  /* Ombre dynamique pendant la rotation */
+  .flip::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, rgba(0,0,0,0.08), rgba(0,0,0,0));
+    opacity: 0;
+    transition: opacity var(--turn-duration) var(--turn-ease);
+    pointer-events: none;
+  }
+
+  .flip.animating::after { opacity: 1; }
 
   /* Contrôles */
   .controls {
@@ -82,26 +173,21 @@
   button:disabled { opacity: 0.4; cursor: default; }
   #indicator { min-width: 130px; text-align: center; }
 
-  /* Message global si pas d'images */
-  .notice {
-    max-width: 900px;
-    margin: 1rem auto;
-    padding: 10px 14px;
-    background: #fff3cd;
-    color: #7a5d00;
-    border: 1px solid #ffeeba;
-    border-radius: 6px;
-    font-size: 14px;
+  /* Réduction des animations si préférences utilisateur */
+  @media (prefers-reduced-motion: reduce) {
+    .flip,
+    .flip::after {
+      transition: none !important;
+    }
   }
 </style>
 </head>
 <body>
 
-<div id="globalNotice" class="notice" style="display:none;"></div>
-
 <div class="book-scene" aria-label="Lecteur de livre">
   <div class="book" role="region" aria-live="polite" id="book">
     <div class="page left"  id="left"  aria-label="Page gauche"></div>
+    <div class="spine" aria-hidden="true"></div>
     <div class="page right" id="right" aria-label="Page droite"></div>
   </div>
 </div>
@@ -114,24 +200,23 @@
 
 <script>
 /*
-  Hypothèses de mise en page:
-  - Image 1 = 1re de couverture (seule à droite)
-  - Pages internes en doubles: (2 à gauche, 3 à droite), (4 à gauche, 5 à droite), ...
-  - Si nombre d’images pair, dernière image = 4e de couverture (seule à gauche)
-  - Si nombre impair, dernière page seule à droite
-  - Les URLs doivent renvoyer un type MIME image (image/png, image/jpeg, etc.)
+  Logique:
+  - 1ère image = couverture seule à droite
+  - Pages internes par paires (2-3, 4-5, ...)
+  - Si total pair, dernière seule à gauche (4e de couverture)
+  - Animation de tourne-page: droite->gauche à l'aller, gauche->droite au retour
 */
 
-/* 1) DÉFINIR LES PAGES */
-/* Remplacez ces URLs par les vôtres. Vous pouvez aussi utiliser des objets: [{ url: "https://..." }, ...] */
+/* 1) DÉFINIR LES PAGES (chaînes OU objets { url }) */
 const pageInputs = [
+  // Remplacez par vos URLs (SharePoint/CDN). Les images doivent être accessibles et retourner un Content-Type image/*
   "https://raw.githubusercontent.com/ManonM15/Flipbook-sharepoint/main/LargeSolutionGuide1.png.jpg",
   "https://raw.githubusercontent.com/ManonM15/Flipbook-sharepoint/main/LargeSolutionGuide2.png.jpg",
   "https://raw.githubusercontent.com/ManonM15/Flipbook-sharepoint/main/LargeSolutionGuide3.png.jpg",
   "https://raw.githubusercontent.com/ManonM15/Flipbook-sharepoint/main/LargeSolutionGuide4.png.jpg"
 ];
 
-/* 2) NORMALISATION ET PRÉCHARGEMENT */
+/* 2) NORMALISATION */
 function toUrl(entry) {
   if (typeof entry === "string") return entry;
   if (entry && typeof entry === "object" && typeof entry.url === "string") return entry.url;
@@ -139,73 +224,34 @@ function toUrl(entry) {
 }
 const pageUrls = pageInputs.map(toUrl).filter(Boolean);
 
-if (pageUrls.length === 0) {
-  showGlobalNotice("Aucune URL d'image valide n'a été fournie. Vérifiez la syntaxe de votre tableau pageInputs.");
-}
-
-function showGlobalNotice(msg) {
-  const n = document.getElementById("globalNotice");
-  n.textContent = msg;
-  n.style.display = "block";
-}
-
-function onImgError(el, src) {
-  console.error("Échec de chargement image:", src);
-  if (!el) return;
-  // Ajoute un overlay d'erreur dans la page concernée
-  const container = el.parentElement;
-  if (container && !container.querySelector(".img-error")) {
-    const div = document.createElement("div");
-    div.className = "img-error";
-    div.textContent = "Image indisponible. Vérifiez l'URL, l'accessibilité et le type de contenu.";
-    container.appendChild(div);
-  }
-}
-
-// Préchargement basique (optionnel mais utile)
-pageUrls.forEach(src => {
-  const img = new Image();
-  img.src = src;
-});
-
 /* 3) CONSTRUCTION DES VUES { left, right } */
 function buildViews(urls) {
   const n = urls.length;
   const views = [];
   if (n === 0) return views;
 
-  // Vue 0: couverture seule à droite
-  views.push({ left: null, right: urls[0] });
+  views.push({ left: null, right: urls[0] }); // Couverture
 
-  // Vues internes
   let i = 1;
   while (i < n) {
     const left = urls[i] || null;
     const right = urls[i + 1] || null;
 
-    // Cas dernier orphelin (pas de paire)
     if (left && !right) {
-      if (n % 2 === 0) {
-        // Nombre total pair -> dernière seule à gauche (4e de couverture)
-        views.push({ left: left, right: null });
-      } else {
-        // Nombre total impair -> dernière seule à droite
-        views.push({ left: null, right: left });
-      }
+      // Dernière orpheline
+      if (n % 2 === 0) views.push({ left, right: null });   // 4e de couv
+      else views.push({ left: null, right: left });          // seule à droite
       break;
     }
 
-    // Paire classique
     views.push({ left, right });
     i += 2;
   }
-
   return views;
 }
-
 const views = buildViews(pageUrls);
 
-/* 4) RENDU ET INTERACTIONS */
+/* 4) RENDU */
 const leftEl = document.getElementById("left");
 const rightEl = document.getElementById("right");
 const prevBtn = document.getElementById("prev");
@@ -214,72 +260,125 @@ const indicator = document.getElementById("indicator");
 const bookEl = document.getElementById("book");
 
 let viewIndex = 0;
+let isAnimating = false;
 
-function imgTag(src, alt) {
-  // On construit l'élément IMG via DOM pour mieux gérer les erreurs
+function imgElem(src, alt) {
   const img = document.createElement("img");
   img.src = src;
   img.alt = alt || "Page";
   img.loading = "lazy";
   img.decoding = "async";
   img.draggable = false;
-  img.addEventListener("error", () => onImgError(img, src));
+  img.addEventListener("error", () => {
+    console.error("Échec de chargement image:", src);
+    img.style.opacity = 0.3;
+    img.alt = "Image indisponible";
+  });
   return img;
 }
 
 function clearPage(el) {
   el.innerHTML = "";
-  const err = el.querySelector(".img-error");
-  if (err) err.remove();
 }
 
-function render() {
-  if (!views || views.length === 0) {
-    clearPage(leftEl);
-    clearPage(rightEl);
-    showGlobalNotice("Aucune vue n'a pu être construite. Vérifiez que vos URLs pointent vers des images accessibles.");
-    indicator.textContent = "0 / 0";
-    prevBtn.disabled = true;
-    nextBtn.disabled = true;
-    return;
-  }
-
+function renderStatic() {
   const view = views[viewIndex] || { left: null, right: null };
-
   clearPage(leftEl);
   clearPage(rightEl);
-
-  if (view.left) leftEl.appendChild(imgTag(view.left, "Page gauche"));
-  if (view.right) rightEl.appendChild(imgTag(view.right, "Page droite"));
-
+  if (view.left)  leftEl.appendChild(imgElem(view.left, "Page gauche"));
+  if (view.right) rightEl.appendChild(imgElem(view.right, "Page droite"));
   indicator.textContent = `Vue ${viewIndex + 1} / ${views.length}`;
-  prevBtn.disabled = viewIndex === 0;
-  nextBtn.disabled = viewIndex >= views.length - 1;
+  prevBtn.disabled = viewIndex === 0 || isAnimating;
+  nextBtn.disabled = viewIndex >= views.length - 1 || isAnimating;
 }
 
-function nextPage() {
-  if (viewIndex < views.length - 1) {
-    viewIndex++;
-    render();
+/* 5) ANIMATIONS DE TOURNE-PAGE */
+function animateTurn(direction, onComplete) {
+  // direction: "next" (droite->gauche) ou "prev" (gauche->droite)
+  if (isAnimating) return;
+  isAnimating = true;
+  prevBtn.disabled = true;
+  nextBtn.disabled = true;
+
+  const currentView = views[viewIndex] || {};
+  const flip = document.createElement("div");
+  flip.className = "flip";
+
+  // Contenu à animer
+  if (direction === "next" && currentView.right) {
+    // On anime la page droite qui se rabat vers la gauche
+    flip.style.right = "0";
+    flip.style.transformOrigin = "left center";
+    flip.appendChild(imgElem(currentView.right, "Tourne-page"));
+    bookEl.appendChild(flip);
+
+    // Force le style initial avant transition
+    requestAnimationFrame(() => {
+      flip.style.transform = "rotateY(0deg)";
+      flip.classList.add("animating");
+      flip.style.transition = `transform var(--turn-duration) var(--turn-ease)`;
+      requestAnimationFrame(() => {
+        flip.style.transform = "rotateY(-180deg)";
+      });
+    });
+
+    flip.addEventListener("transitionend", () => {
+      flip.remove();
+      onComplete && onComplete();
+      isAnimating = false;
+      renderStatic();
+    }, { once: true });
+
+  } else if (direction === "prev" && currentView.left) {
+    // On anime la page gauche qui se rabat vers la droite
+    flip.style.left = "0";
+    flip.style.transformOrigin = "right center";
+    flip.appendChild(imgElem(currentView.left, "Tourne-page"));
+    bookEl.appendChild(flip);
+
+    requestAnimationFrame(() => {
+      flip.style.transform = "rotateY(0deg)";
+      flip.classList.add("animating");
+      flip.style.transition = `transform var(--turn-duration) var(--turn-ease)`;
+      requestAnimationFrame(() => {
+        flip.style.transform = "rotateY(180deg)";
+      });
+    });
+
+    flip.addEventListener("transitionend", () => {
+      flip.remove();
+      onComplete && onComplete();
+      isAnimating = false;
+      renderStatic();
+    }, { once: true });
+
+  } else {
+    // Si pas d'image à animer (ex: couverture seule), on complète sans animation
+    onComplete && onComplete();
+    isAnimating = false;
+    renderStatic();
   }
+}
+
+/* 6) NAVIGATION */
+function nextPage() {
+  if (isAnimating || viewIndex >= views.length - 1) return;
+  animateTurn("next", () => { viewIndex++; });
 }
 function prevPage() {
-  if (viewIndex > 0) {
-    viewIndex--;
-    render();
-  }
+  if (isAnimating || viewIndex <= 0) return;
+  animateTurn("prev", () => { viewIndex--; });
 }
 
 prevBtn.addEventListener("click", prevPage);
 nextBtn.addEventListener("click", nextPage);
 
-// Navigation clavier (← →)
 document.addEventListener("keydown", (e) => {
   if (e.key === "ArrowRight") nextPage();
   if (e.key === "ArrowLeft")  prevPage();
 });
 
-// Gestes tactiles (swipe)
+// Gestes tactiles
 let touchStartX = 0;
 bookEl.addEventListener("touchstart", (e) => {
   if (e.touches && e.touches.length === 1) touchStartX = e.touches[0].clientX;
@@ -294,7 +393,8 @@ bookEl.addEventListener("touchend", (e) => {
   touchStartX = 0;
 }, { passive: true });
 
-render();
+/* INIT */
+renderStatic();
 </script>
 
 </body>
