@@ -30,6 +30,11 @@
 
     /* Calculé en JS: aspect du spread = (2 * bookWidth) / bookHeight */
     --spread-aspect: 1.414; /* placeholder, mis à jour au chargement */
+
+    /* Zoom et pan */
+    --zoom: 1;
+    --pan-x: 0px;
+    --pan-y: 0px;
   }
 
   html, body { width: 100%; height: 100%; }
@@ -40,7 +45,6 @@
     overflow: hidden; /* pas de scroll interne dans le webpart */
   }
 
-  /* Conteneur global = toute la taille de l'iframe/webpart */
   .app {
     width: 100%;
     height: 100%;
@@ -57,20 +61,34 @@
     align-items: center;
     perspective: 2400px;
     padding: 12px;
+    overflow: hidden; /* évite les débordements visibles lors du zoom/pan */
   }
 
   /* Support 3D neutre */
   .book-pedestal {
     width: min(var(--book-max-width), 96%);
-    /* La hauteur est auto via aspect-ratio du composant .book */
     position: relative;
     transform: rotateX(8deg);
     transform-style: preserve-3d;
     display: grid;
     place-items: center;
+    overflow: hidden; /* masque les débordements au zoom/pan */
   }
 
-  /* Livre = spread avec ratio constant, largeur fluide; pas de hauteur forcée */
+  /* Wrapper de zoom/pan: on scale et translate ce conteneur */
+  .zoom-wrap {
+    display: inline-block;
+    transform: translate(var(--pan-x), var(--pan-y)) scale(var(--zoom));
+    transform-origin: center center;
+    will-change: transform;
+    touch-action: none; /* pour gérer le pan au doigt sans scroll */
+  }
+
+  /* Indices visuels de pan */
+  .pannable { cursor: grab; }
+  .panning  { cursor: grabbing; }
+
+  /* Livre = spread avec ratio constant, largeur fluide */
   .book {
     width: 100%;
     max-width: var(--book-max-width);
@@ -130,7 +148,6 @@
 
   .page {
     width: 50%;
-    /* La hauteur découle de l’aspect-ratio parent .book (pas de height:100%) */
     background: var(--paper);
     overflow: hidden;
     display: flex;
@@ -251,6 +268,7 @@
     padding: 10px 0 14px;
     align-items: center;
     background: transparent;
+    color: #eaeaea;
   }
   button {
     padding: 9px 22px;
@@ -263,7 +281,24 @@
   }
   button:not(:disabled):hover { box-shadow: 0 3px 8px rgba(0,0,0,0.15); transform: translateY(-1px); }
   button:disabled { opacity: 0.4; cursor: default; }
+
   #indicator { min-width: 130px; text-align: center; color: #eaeaea; font-size: 0.9rem; }
+
+  .zoom-control {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: #eaeaea;
+    font-size: 0.9rem;
+  }
+  .zoom-control input[type="range"] {
+    width: 180px;
+    accent-color: #0b5fff;
+  }
+  .zoom-value {
+    min-width: 3.5em;
+    text-align: right;
+  }
 
   @media (prefers-reduced-motion: reduce) {
     .flip, .flip-strip, .flip-strip .shade, .lift-shadow, .page img { transition: none !important; }
@@ -273,13 +308,15 @@
 <body>
 <div class="app">
   <div class="book-scene" aria-label="Lecteur de livre">
-    <div class="book-pedestal">
-      <div class="book" role="region" aria-live="polite" id="book">
-        <div class="page left"  id="left"  aria-label="Page gauche"></div>
-        <div class="spine" aria-hidden="true"></div>
-        <div class="page right" id="right" aria-label="Page droite"></div>
-        <div class="lift-shadow from-right" id="liftRight" aria-hidden="true"></div>
-        <div class="lift-shadow from-left"  id="liftLeft"  aria-hidden="true"></div>
+    <div class="book-pedestal" id="pedestal">
+      <div class="zoom-wrap" id="zoomWrap">
+        <div class="book" role="region" aria-live="polite" id="book">
+          <div class="page left"  id="left"  aria-label="Page gauche"></div>
+          <div class="spine" aria-hidden="true"></div>
+          <div class="page right" id="right" aria-label="Page droite"></div>
+          <div class="lift-shadow from-right" id="liftRight" aria-hidden="true"></div>
+          <div class="lift-shadow from-left"  id="liftLeft"  aria-hidden="true"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -287,6 +324,12 @@
     <button id="prev" aria-label="Page précédente">← Précédent</button>
     <span id="indicator" aria-live="polite"></span>
     <button id="next" aria-label="Page suivante">Suivant →</button>
+
+    <div class="zoom-control" aria-label="Contrôle du zoom">
+      <label for="zoomRange">Zoom</label>
+      <input id="zoomRange" type="range" min="0.6" max="2" step="0.05" value="1" aria-valuemin="0.6" aria-valuemax="2" aria-valuenow="1" aria-label="Zoom du livre">
+      <span class="zoom-value" id="zoomLabel">100%</span>
+    </div>
   </div>
 </div>
 
@@ -294,7 +337,6 @@
 /* 1) RÉGLAGE DU FORMAT LIVRE (mm) => propagation vers CSS */
 const bookWidthMM  = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--book-width-mm'))  || 210;
 const bookHeightMM = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--book-height-mm')) || 297;
-/* Aspect du spread (double page) = 2 * largeur / hauteur */
 const spreadAspect = (2 * bookWidthMM) / bookHeightMM;
 document.documentElement.style.setProperty('--spread-aspect', String(spreadAspect.toFixed(6)));
 
@@ -313,19 +355,16 @@ function toUrl(entry) {
 }
 const pageUrls = pageInputs.map(toUrl).filter(Boolean);
 
-/* 3) CONSTRUCTION DES VUES (couverture, paires internes, dernière) */
+/* 3) CONSTRUCTION DES VUES */
 function buildViews(urls) {
   const n = urls.length;
   const views = [];
   if (n === 0) return views;
-
   views.push({ left: null, right: urls[0] }); // Couverture
-
   let i = 1;
   while (i < n) {
     const left = urls[i] || null;
     const right = urls[i + 1] || null;
-
     if (left && !right) {
       if (n % 2 === 0) views.push({ left, right: null });
       else views.push({ left: null, right: left });
@@ -347,6 +386,10 @@ const indicator = document.getElementById("indicator");
 const bookEl = document.getElementById("book");
 const liftRight = document.getElementById("liftRight");
 const liftLeft = document.getElementById("liftLeft");
+const pedestal = document.getElementById("pedestal");
+const zoomWrap = document.getElementById("zoomWrap");
+const zoomRange = document.getElementById("zoomRange");
+const zoomLabel = document.getElementById("zoomLabel");
 
 let viewIndex = 0;
 let isAnimating = false;
@@ -361,9 +404,7 @@ function imgElem(src, alt) {
   img.loading = "lazy";
   img.decoding = "async";
   img.draggable = false;
-  img.addEventListener("load", () => {
-    requestAnimationFrame(() => img.classList.add("is-visible"));
-  });
+  img.addEventListener("load", () => requestAnimationFrame(() => img.classList.add("is-visible")));
   img.addEventListener("error", () => {
     console.error("Échec de chargement image:", src);
     img.style.opacity = 0.3;
@@ -391,28 +432,22 @@ function buildFlipSheet(src, direction) {
   const flip = document.createElement("div");
   flip.className = "flip";
   flip.style.transformStyle = "preserve-3d";
-
   const stripWidth = 100 / STRIP_COUNT;
-
   for (let s = 0; s < STRIP_COUNT; s++) {
     const strip = document.createElement("div");
     strip.className = "flip-strip";
     strip.style.width = stripWidth + "%";
     strip.style.left = (s * stripWidth) + "%";
     strip.style.backfaceVisibility = "hidden";
-
     const originSide = direction === "next" ? "left" : "right";
     strip.style.transformOrigin = originSide + " center";
-
     const img = imgElem(src, "Tourne-page");
     img.style.width = (STRIP_COUNT * 100) + "%";
     img.style.left = (-s * 100) + "%";
     strip.appendChild(img);
-
     const shade = document.createElement("div");
     shade.className = "shade";
     strip.appendChild(shade);
-
     flip.appendChild(strip);
   }
   return flip;
@@ -422,30 +457,23 @@ function animateStrips(flip, direction, duration, onDone) {
   const strips = Array.from(flip.querySelectorAll(".flip-strip"));
   const total = strips.length;
   const start = performance.now();
-
   function easeInOut(t) { return t < 0.5 ? 2*t*t : 1 - Math.pow(-2*t+2, 2)/2; }
-
   function frame(now) {
     const elapsed = now - start;
     const t = Math.min(elapsed / duration, 1);
     const eased = easeInOut(t);
-
     strips.forEach((strip, idx) => {
       const proximityToSpine = direction === "next" ? idx / (total - 1) : 1 - idx / (total - 1);
       const localDelay = proximityToSpine * 0.18;
       const localT = Math.max(0, Math.min(1, (t - localDelay) / (1 - localDelay)));
       const localEased = easeInOut(localT);
-
       const angle = direction === "next" ? -180 * localEased : 180 * localEased;
-      const bulge = Math.sin(localEased * Math.PI) * 6; // degrés
-
+      const bulge = Math.sin(localEased * Math.PI) * 6;
       strip.style.transform = `rotateY(${angle}deg) rotateX(${bulge * (proximityToSpine - 0.5) * 0.4}deg)`;
-
       const edgeOn = Math.sin(localEased * Math.PI);
       const shade = strip.querySelector(".shade");
       if (shade) shade.style.opacity = String(0.15 + 0.55 * edgeOn);
     });
-
     if (t < 1) requestAnimationFrame(frame);
     else onDone && onDone();
   }
@@ -463,7 +491,6 @@ function animateTurn(direction, onComplete) {
     .getPropertyValue('--turn-duration')) || 900;
 
   const hasPage = direction === "next" ? !!currentView.right : !!currentView.left;
-
   if (!hasPage) {
     onComplete && onComplete();
     isAnimating = false;
@@ -503,7 +530,161 @@ function prevPage() {
   animateTurn("prev", () => { viewIndex--; });
 }
 
-/* 7) ÉVÉNEMENTS */
+/* 7) ZOOM */
+function setZoom(val) {
+  const z = Math.max(0.6, Math.min(2, Number(val)));
+  document.documentElement.style.setProperty('--zoom', String(z));
+  zoomRange.value = String(z);
+  zoomRange.setAttribute('aria-valuenow', String(z));
+  zoomLabel.textContent = Math.round(z * 100) + '%';
+  updatePanBoundsAndClamp(); /* recalcule les bornes de pan quand le zoom change */
+  updatePannableState();
+}
+zoomRange.addEventListener('input', (e) => {
+  setZoom((e.target && e.target.value) || '1');
+});
+
+/* Raccourcis clavier zoom: + / - ; double-clic pour reset */
+document.addEventListener('keydown', (e) => {
+  if (e.key === '+' || e.key === '=') setZoom(parseFloat(zoomRange.value) + 0.05);
+  else if (e.key === '-' || e.key === '_') setZoom(parseFloat(zoomRange.value) - 0.05);
+});
+zoomWrap.addEventListener('dblclick', () => setZoom(1));
+
+/* 8) PAN AU SOURIS / TOUCHER (drag) */
+let pan = { x: 0, y: 0 };
+let panMax = { x: 0, y: 0 };
+let dragState = null; // {startX, startY, origX, origY, pointerId}
+
+function applyPan() {
+  document.documentElement.style.setProperty('--pan-x', pan.x.toFixed(1) + 'px');
+  document.documentElement.style.setProperty('--pan-y', pan.y.toFixed(1) + 'px');
+}
+
+function clampPan(nx, ny) {
+  const clampedX = Math.max(-panMax.x, Math.min(panMax.x, nx));
+  const clampedY = Math.max(-panMax.y, Math.min(panMax.y, ny));
+  return { x: clampedX, y: clampedY };
+}
+
+function updatePanBoundsAndClamp() {
+  const z = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--zoom')) || 1;
+  // Mesure de la taille “base” du livre (zoom 1 logique)
+  const bookRect = bookEl.getBoundingClientRect();
+  const wrapRect = pedestal.getBoundingClientRect();
+
+  // Tant que le layout n’est pas prêt, éviter NaN
+  if (!bookRect.width || !wrapRect.width) return;
+
+  // Taille réelle affichée du livre à zoom z
+  const scaledW = bookRect.width * z;
+  const scaledH = bookRect.height * z;
+
+  const viewW = wrapRect.width;
+  const viewH = wrapRect.height;
+
+  // Dépassement de chaque côté; si négatif, pas de pan possible
+  panMax.x = Math.max(0, (scaledW - viewW) / 2);
+  panMax.y = Math.max(0, (scaledH - viewH) / 2);
+
+  // Recalage du pan courant dans les bornes
+  const c = clampPan(pan.x, pan.y);
+  pan.x = c.x; pan.y = c.y;
+  applyPan();
+}
+
+function updatePannableState() {
+  const z = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--zoom')) || 1;
+  if (z > 1.001 && (panMax.x > 0 || panMax.y > 0)) {
+    zoomWrap.classList.add('pannable');
+  } else {
+    zoomWrap.classList.remove('pannable');
+  }
+}
+
+/* Souris */
+pedestal.addEventListener('mousedown', (e) => {
+  const z = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--zoom')) || 1;
+  if (z <= 1.001) return; // pan seulement si zoom > 1
+  // Ignorer si clic sur un bouton/contrôle
+  if ((e.target.closest('.controls') || e.button !== 0)) return;
+  dragState = {
+    startX: e.clientX,
+    startY: e.clientY,
+    origX: pan.x,
+    origY: pan.y
+  };
+  zoomWrap.classList.add('panning');
+  e.preventDefault();
+});
+
+window.addEventListener('mousemove', (e) => {
+  if (!dragState) return;
+  const dx = e.clientX - dragState.startX;
+  const dy = e.clientY - dragState.startY;
+  const next = clampPan(dragState.origX + dx, dragState.origY + dy);
+  pan.x = next.x; pan.y = next.y;
+  applyPan();
+});
+
+window.addEventListener('mouseup', () => {
+  if (!dragState) return;
+  dragState = null;
+  zoomWrap.classList.remove('panning');
+});
+
+/* Touch (une seule touche pour pan) */
+pedestal.addEventListener('touchstart', (e) => {
+  const z = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--zoom')) || 1;
+  if (z <= 1.001) return;
+  if (e.touches.length !== 1) return;
+  const t = e.touches[0];
+  dragState = {
+    startX: t.clientX,
+    startY: t.clientY,
+    origX: pan.x,
+    origY: pan.y
+  };
+  zoomWrap.classList.add('panning');
+}, { passive: true });
+
+pedestal.addEventListener('touchmove', (e) => {
+  if (!dragState || e.touches.length !== 1) return;
+  const t = e.touches[0];
+  const dx = t.clientX - dragState.startX;
+  const dy = t.clientY - dragState.startY;
+  const next = clampPan(dragState.origX + dx, dragState.origY + dy);
+  pan.x = next.x; pan.y = next.y;
+  applyPan();
+}, { passive: true });
+
+pedestal.addEventListener('touchend', () => {
+  if (!dragState) return;
+  dragState = null;
+  zoomWrap.classList.remove('panning');
+}, { passive: true });
+
+/* Optionnel: molette pour pan si zoom > 1 (sans scroll de page) */
+pedestal.addEventListener('wheel', (e) => {
+  const z = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--zoom')) || 1;
+  if (z <= 1.001) return;
+  // Pan avec la molette (Shift = horizontal)
+  const deltaX = (e.shiftKey ? e.deltaY : e.deltaX) || 0;
+  const deltaY = (e.shiftKey ? 0 : e.deltaY) || 0;
+  const speed = 0.8; // ajustez la sensibilité
+  const next = clampPan(pan.x - deltaX * speed, pan.y - deltaY * speed);
+  pan.x = next.x; pan.y = next.y;
+  applyPan();
+  e.preventDefault();
+}, { passive: false });
+
+/* Recalcule les bornes de pan lors du resize */
+window.addEventListener('resize', () => {
+  updatePanBoundsAndClamp();
+  updatePannableState();
+});
+
+/* 9) ÉVÉNEMENTS PAGE */
 prevBtn.addEventListener("click", prevPage);
 nextBtn.addEventListener("click", nextPage);
 
@@ -512,6 +693,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "ArrowLeft")  prevPage();
 });
 
+/* Swipe pour tourner les pages (conserve votre logique) */
 let touchStartX = 0;
 bookEl.addEventListener("touchstart", (e) => {
   if (e.touches && e.touches.length === 1) touchStartX = e.touches[0].clientX;
@@ -526,8 +708,14 @@ bookEl.addEventListener("touchend", (e) => {
   touchStartX = 0;
 }, { passive: true });
 
-/* 8) PREMIER AFFICHAGE */
-renderStatic();
+/* 10) INITIALISATION */
+function init() {
+  setZoom(1);              // initialise zoom + bornes pan
+  renderStatic();
+  // petite temporisation pour attendre la mise en page avant bornes
+  setTimeout(() => { updatePanBoundsAndClamp(); updatePannableState(); }, 0);
+}
+init();
 </script>
 </body>
 </html>
