@@ -7,12 +7,21 @@
   :root{
     --book-max-width: 1100px;
     --book-radius: 8px;
-    --spine-width: 12px;
-    --spine-color: #d7d2cc;
-    --edge-shadow: rgba(0,0,0,0.08);
-    --inner-shadow: rgba(0,0,0,0.12);
-    --turn-duration: 650ms;
-    --turn-ease: cubic-bezier(.2,.6,.2,1);
+
+    /* Fluidité / animation */
+    --turn-duration: 800ms; /* un peu plus long = plus fluide */
+    --turn-ease: cubic-bezier(.15,.7,.1,1);
+
+    /* Reliure et ombres */
+    --spine-width: 14px;        /* + large pour marquer */
+    --spine-tint: rgba(0,0,0,0.08);
+    --edge-shadow: rgba(0,0,0,0.10);   /* + prononcé */
+    --inner-shadow: rgba(0,0,0,0.16);  /* + prononcé */
+    --page-line: rgba(0, 0, 0, 0.08);  /* stries papier */
+
+    /* Fondu des images lors d’un rendu statique */
+    --img-fade-duration: 220ms;
+    --img-fade-ease: ease-out;
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -34,12 +43,12 @@
     position: relative;
     touch-action: pan-y;
     border-radius: var(--book-radius);
-    /* Ombre globale pour donner une assise */
     box-shadow: 0 12px 28px rgba(0,0,0,0.12);
     background: #fff;
+    overflow: hidden; /* pour les ombres animées */
   }
 
-  /* Reliure (spine) centrale */
+  /* Reliure (spine) centrale plus marquée */
   .spine {
     position: absolute;
     top: 0;
@@ -47,12 +56,17 @@
     left: calc(50% - var(--spine-width)/2);
     width: var(--spine-width);
     pointer-events: none;
-    border-left: 1px solid rgba(0,0,0,0.07);
-    border-right: 1px solid rgba(0,0,0,0.07);
+    z-index: 3;
     background:
-      linear-gradient(180deg, rgba(0,0,0,0.06), rgba(0,0,0,0.02) 18%, rgba(255,255,255,0) 45%, rgba(0,0,0,0.03) 82%, rgba(0,0,0,0.08));
-    opacity: 0.95;
-    z-index: 2;
+      linear-gradient(180deg, rgba(0,0,0,0.06), rgba(0,0,0,0.02) 18%, rgba(255,255,255,0) 45%, rgba(0,0,0,0.03) 82%, rgba(0,0,0,0.08)),
+      /* léger motif vertical pour simuler couture/relief */
+      repeating-linear-gradient(90deg, transparent 0 6px, rgba(0,0,0,0.02) 6px 7px);
+    border-left: 1px solid rgba(0,0,0,0.10);
+    border-right: 1px solid rgba(0,0,0,0.10);
+    box-shadow:
+      inset 0 0 18px var(--spine-tint),
+      0 0 0 1px rgba(0,0,0,0.03);
+    opacity: 0.98;
   }
 
   .page {
@@ -77,39 +91,47 @@
     position: absolute;
     top: 0;
     bottom: 0;
-    width: 18px;
+    width: 24px;
     pointer-events: none;
     z-index: 1;
   }
   .page.left::after {
     right: 0;
-    background: linear-gradient(90deg, rgba(0,0,0,0) 0%, var(--edge-shadow) 60%, rgba(0,0,0,0.05) 100%);
+    background: linear-gradient(90deg, rgba(0,0,0,0) 0%, var(--edge-shadow) 60%, rgba(0,0,0,0.06) 100%);
   }
   .page.right::after {
     left: 0;
-    background: linear-gradient(270deg, rgba(0,0,0,0) 0%, var(--edge-shadow) 60%, rgba(0,0,0,0.05) 100%);
+    background: linear-gradient(270deg, rgba(0,0,0,0) 0%, var(--edge-shadow) 60%, rgba(0,0,0,0.06) 100%);
   }
 
-  /* Ombre interne près de la reliure pour renforcer la séparation */
+  /* Ombre interne près de la reliure + stries “papier” */
   .page.left::before,
   .page.right::before {
     content: "";
     position: absolute;
     top: 0;
     bottom: 0;
-    width: 26px;
+    width: 36px; /* un peu plus large pour marquer */
     pointer-events: none;
     z-index: 1;
   }
   .page.left::before {
     right: -1px;
-    background: linear-gradient(90deg, rgba(0,0,0,0), var(--inner-shadow));
+    background:
+      linear-gradient(90deg, rgba(0,0,0,0), var(--inner-shadow)),
+      /* fines stries verticales pour simuler les feuillets */
+      repeating-linear-gradient(90deg, transparent 0 3px, var(--page-line) 3px 4px);
+    opacity: 0.9;
   }
   .page.right::before {
     left: -1px;
-    background: linear-gradient(270deg, rgba(0,0,0,0), var(--inner-shadow));
+    background:
+      linear-gradient(270deg, rgba(0,0,0,0), var(--inner-shadow)),
+      repeating-linear-gradient(90deg, transparent 0 3px, var(--page-line) 3px 4px);
+    opacity: 0.9;
   }
 
+  /* Images: ajout d’un léger fondu lors de l’insertion */
   .page img {
     width: 100%;
     height: 100%;
@@ -120,7 +142,10 @@
     pointer-events: none;
     position: relative;
     z-index: 0;
+    opacity: 0;
+    transition: opacity var(--img-fade-duration) var(--img-fade-ease);
   }
+  .page img.is-visible { opacity: 1; }
 
   /* Feuille animée pour le tourne-page */
   .flip {
@@ -132,27 +157,25 @@
     overflow: hidden;
     transform-style: preserve-3d;
     backface-visibility: hidden;
-    z-index: 3;
+    z-index: 4;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.15); /* renforce la perception de la feuille */
   }
-
   .flip img {
     width: 100%;
     height: 100%;
     object-fit: contain;
     pointer-events: none;
   }
-
-  /* Ombre dynamique pendant la rotation */
+  /* Ombre dynamique pendant la rotation (plus visible) */
   .flip::after {
     content: "";
     position: absolute;
     inset: 0;
-    background: linear-gradient(90deg, rgba(0,0,0,0.08), rgba(0,0,0,0));
+    background: linear-gradient(90deg, rgba(0,0,0,0.18), rgba(0,0,0,0));
     opacity: 0;
     transition: opacity var(--turn-duration) var(--turn-ease);
     pointer-events: none;
   }
-
   .flip.animating::after { opacity: 1; }
 
   /* Contrôles */
@@ -175,10 +198,8 @@
 
   /* Réduction des animations si préférences utilisateur */
   @media (prefers-reduced-motion: reduce) {
-    .flip,
-    .flip::after {
-      transition: none !important;
-    }
+    .flip, .flip::after { transition: none !important; }
+    .page img { transition: none !important; }
   }
 </style>
 </head>
@@ -199,24 +220,14 @@
 </div>
 
 <script>
-/*
-  Logique:
-  - 1ère image = couverture seule à droite
-  - Pages internes par paires (2-3, 4-5, ...)
-  - Si total pair, dernière seule à gauche (4e de couverture)
-  - Animation de tourne-page: droite->gauche à l'aller, gauche->droite au retour
-*/
-
-/* 1) DÉFINIR LES PAGES (chaînes OU objets { url }) */
+/* Définissez vos URLs ici (SharePoint/CDN) */
 const pageInputs = [
-  // Remplacez par vos URLs (SharePoint/CDN). Les images doivent être accessibles et retourner un Content-Type image/*
   "https://raw.githubusercontent.com/ManonM15/Flipbook-sharepoint/main/LargeSolutionGuide1.png.jpg",
   "https://raw.githubusercontent.com/ManonM15/Flipbook-sharepoint/main/LargeSolutionGuide2.png.jpg",
   "https://raw.githubusercontent.com/ManonM15/Flipbook-sharepoint/main/LargeSolutionGuide3.png.jpg",
   "https://raw.githubusercontent.com/ManonM15/Flipbook-sharepoint/main/LargeSolutionGuide4.png.jpg"
 ];
 
-/* 2) NORMALISATION */
 function toUrl(entry) {
   if (typeof entry === "string") return entry;
   if (entry && typeof entry === "object" && typeof entry.url === "string") return entry.url;
@@ -224,7 +235,7 @@ function toUrl(entry) {
 }
 const pageUrls = pageInputs.map(toUrl).filter(Boolean);
 
-/* 3) CONSTRUCTION DES VUES { left, right } */
+/* Construction des vues (couverture, paires internes, dernière) */
 function buildViews(urls) {
   const n = urls.length;
   const views = [];
@@ -238,12 +249,10 @@ function buildViews(urls) {
     const right = urls[i + 1] || null;
 
     if (left && !right) {
-      // Dernière orpheline
-      if (n % 2 === 0) views.push({ left, right: null });   // 4e de couv
-      else views.push({ left: null, right: left });          // seule à droite
+      if (n % 2 === 0) views.push({ left, right: null });
+      else views.push({ left: null, right: left });
       break;
     }
-
     views.push({ left, right });
     i += 2;
   }
@@ -251,7 +260,7 @@ function buildViews(urls) {
 }
 const views = buildViews(pageUrls);
 
-/* 4) RENDU */
+/* Rendu et interactions */
 const leftEl = document.getElementById("left");
 const rightEl = document.getElementById("right");
 const prevBtn = document.getElementById("prev");
@@ -269,17 +278,20 @@ function imgElem(src, alt) {
   img.loading = "lazy";
   img.decoding = "async";
   img.draggable = false;
+  img.addEventListener("load", () => {
+    // active le léger fondu
+    requestAnimationFrame(() => img.classList.add("is-visible"));
+  });
   img.addEventListener("error", () => {
     console.error("Échec de chargement image:", src);
     img.style.opacity = 0.3;
     img.alt = "Image indisponible";
+    img.classList.add("is-visible");
   });
   return img;
 }
 
-function clearPage(el) {
-  el.innerHTML = "";
-}
+function clearPage(el) { el.innerHTML = ""; }
 
 function renderStatic() {
   const view = views[viewIndex] || { left: null, right: null };
@@ -292,9 +304,8 @@ function renderStatic() {
   nextBtn.disabled = viewIndex >= views.length - 1 || isAnimating;
 }
 
-/* 5) ANIMATIONS DE TOURNE-PAGE */
+/* Animation de tourne-page plus fluide + ombres renforcées */
 function animateTurn(direction, onComplete) {
-  // direction: "next" (droite->gauche) ou "prev" (gauche->droite)
   if (isAnimating) return;
   isAnimating = true;
   prevBtn.disabled = true;
@@ -304,22 +315,18 @@ function animateTurn(direction, onComplete) {
   const flip = document.createElement("div");
   flip.className = "flip";
 
-  // Contenu à animer
   if (direction === "next" && currentView.right) {
-    // On anime la page droite qui se rabat vers la gauche
+    // Page droite qui bascule vers la gauche
     flip.style.right = "0";
     flip.style.transformOrigin = "left center";
     flip.appendChild(imgElem(currentView.right, "Tourne-page"));
     bookEl.appendChild(flip);
 
-    // Force le style initial avant transition
     requestAnimationFrame(() => {
       flip.style.transform = "rotateY(0deg)";
       flip.classList.add("animating");
       flip.style.transition = `transform var(--turn-duration) var(--turn-ease)`;
-      requestAnimationFrame(() => {
-        flip.style.transform = "rotateY(-180deg)";
-      });
+      requestAnimationFrame(() => { flip.style.transform = "rotateY(-180deg)"; });
     });
 
     flip.addEventListener("transitionend", () => {
@@ -330,7 +337,7 @@ function animateTurn(direction, onComplete) {
     }, { once: true });
 
   } else if (direction === "prev" && currentView.left) {
-    // On anime la page gauche qui se rabat vers la droite
+    // Page gauche qui bascule vers la droite
     flip.style.left = "0";
     flip.style.transformOrigin = "right center";
     flip.appendChild(imgElem(currentView.left, "Tourne-page"));
@@ -340,9 +347,7 @@ function animateTurn(direction, onComplete) {
       flip.style.transform = "rotateY(0deg)";
       flip.classList.add("animating");
       flip.style.transition = `transform var(--turn-duration) var(--turn-ease)`;
-      requestAnimationFrame(() => {
-        flip.style.transform = "rotateY(180deg)";
-      });
+      requestAnimationFrame(() => { flip.style.transform = "rotateY(180deg)"; });
     });
 
     flip.addEventListener("transitionend", () => {
@@ -353,14 +358,14 @@ function animateTurn(direction, onComplete) {
     }, { once: true });
 
   } else {
-    // Si pas d'image à animer (ex: couverture seule), on complète sans animation
+    // Cas sans image à animer (couverture seule / dernière seule)
     onComplete && onComplete();
     isAnimating = false;
     renderStatic();
   }
 }
 
-/* 6) NAVIGATION */
+/* Navigation */
 function nextPage() {
   if (isAnimating || viewIndex >= views.length - 1) return;
   animateTurn("next", () => { viewIndex++; });
@@ -378,7 +383,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "ArrowLeft")  prevPage();
 });
 
-// Gestes tactiles
+/* Gestes tactiles */
 let touchStartX = 0;
 bookEl.addEventListener("touchstart", (e) => {
   if (e.touches && e.touches.length === 1) touchStartX = e.touches[0].clientX;
@@ -393,9 +398,10 @@ bookEl.addEventListener("touchend", (e) => {
   touchStartX = 0;
 }, { passive: true });
 
-/* INIT */
+/* Init */
 renderStatic();
 </script>
 
 </body>
 </html>
+
