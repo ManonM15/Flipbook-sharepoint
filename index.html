@@ -35,6 +35,7 @@
     align-items: center;
     justify-content: center;
     user-select: none;
+    position: relative;
   }
   .page.left  { border-radius: 8px 0 0 8px; border-right: none; }
   .page.right { border-radius: 0 8px 8px 0; border-left: none; }
@@ -48,6 +49,19 @@
     -webkit-user-drag: none;
     user-drag: none;
     pointer-events: none; /* évite sélection/drag accidentels */
+  }
+
+  /* Overlay d'erreur image */
+  .img-error {
+    position: absolute;
+    bottom: 8px;
+    left: 8px;
+    right: 8px;
+    background: rgba(220, 53, 69, 0.9);
+    color: #fff;
+    padding: 6px 8px;
+    font-size: 12px;
+    border-radius: 4px;
   }
 
   /* Contrôles */
@@ -67,9 +81,23 @@
   }
   button:disabled { opacity: 0.4; cursor: default; }
   #indicator { min-width: 130px; text-align: center; }
+
+  /* Message global si pas d'images */
+  .notice {
+    max-width: 900px;
+    margin: 1rem auto;
+    padding: 10px 14px;
+    background: #fff3cd;
+    color: #7a5d00;
+    border: 1px solid #ffeeba;
+    border-radius: 6px;
+    font-size: 14px;
+  }
 </style>
 </head>
 <body>
+
+<div id="globalNotice" class="notice" style="display:none;"></div>
 
 <div class="book-scene" aria-label="Lecteur de livre">
   <div class="book" role="region" aria-live="polite" id="book">
@@ -91,28 +119,50 @@
   - Pages internes en doubles: (2 à gauche, 3 à droite), (4 à gauche, 5 à droite), ...
   - Si nombre d’images pair, dernière image = 4e de couverture (seule à gauche)
   - Si nombre impair, dernière page seule à droite
-  - Accepte des URLs finissant par ".png.jpg" si le serveur renvoie un Content-Type image
+  - Les URLs doivent renvoyer un type MIME image (image/png, image/jpeg, etc.)
 */
 
-/* 1) DÉFINIR LES PAGES (chaînes OU objets { url }) */
+/* 1) DÉFINIR LES PAGES */
+/* Remplacez ces URLs par les vôtres. Vous pouvez aussi utiliser des objets: [{ url: "https://..." }, ...] */
 const pageInputs = [
-  // Exemples - remplacez par vos URLs réelles SharePoint/externes
-  url: "https://raw.githubusercontent.com/ManonM15/Flipbook-sharepoint/main/LargeSolutionGuide1.png.jpg" 
-  url: "https://raw.githubusercontent.com/ManonM15/Flipbook-sharepoint/main/LargeSolutionGuide2.png.jpg" 
-  url: "https://raw.githubusercontent.com/ManonM15/Flipbook-sharepoint/main/LargeSolutionGuide3.png.jpg" 
-  url: "https://raw.githubusercontent.com/ManonM15/Flipbook-sharepoint/main/LargeSolutionGuide4.png.jpg" 
+  "https://raw.githubusercontent.com/ManonM15/Flipbook-sharepoint/main/LargeSolutionGuide1.png.jpg",
+  "https://raw.githubusercontent.com/ManonM15/Flipbook-sharepoint/main/LargeSolutionGuide2.png.jpg",
+  "https://raw.githubusercontent.com/ManonM15/Flipbook-sharepoint/main/LargeSolutionGuide3.png.jpg",
+  "https://raw.githubusercontent.com/ManonM15/Flipbook-sharepoint/main/LargeSolutionGuide4.png.jpg"
 ];
 
 /* 2) NORMALISATION ET PRÉCHARGEMENT */
 function toUrl(entry) {
-  // Accepte soit "https://...img" soit { url: "https://...img" }
   if (typeof entry === "string") return entry;
   if (entry && typeof entry === "object" && typeof entry.url === "string") return entry.url;
   return null;
 }
 const pageUrls = pageInputs.map(toUrl).filter(Boolean);
 
-// Préchargement basique
+if (pageUrls.length === 0) {
+  showGlobalNotice("Aucune URL d'image valide n'a été fournie. Vérifiez la syntaxe de votre tableau pageInputs.");
+}
+
+function showGlobalNotice(msg) {
+  const n = document.getElementById("globalNotice");
+  n.textContent = msg;
+  n.style.display = "block";
+}
+
+function onImgError(el, src) {
+  console.error("Échec de chargement image:", src);
+  if (!el) return;
+  // Ajoute un overlay d'erreur dans la page concernée
+  const container = el.parentElement;
+  if (container && !container.querySelector(".img-error")) {
+    const div = document.createElement("div");
+    div.className = "img-error";
+    div.textContent = "Image indisponible. Vérifiez l'URL, l'accessibilité et le type de contenu.";
+    container.appendChild(div);
+  }
+}
+
+// Préchargement basique (optionnel mais utile)
 pageUrls.forEach(src => {
   const img = new Image();
   img.src = src;
@@ -166,17 +216,41 @@ const bookEl = document.getElementById("book");
 let viewIndex = 0;
 
 function imgTag(src, alt) {
-  // Fallback visuel si l’image échoue
-  const safeAlt = alt || "Page";
-  return `<img src="${src}" alt="${safeAlt}" loading="lazy" decoding="async"
-    draggable="false"
-    onerror="this.onerror=null; this.style.opacity=0.3; this.alt='Image indisponible';" />`;
+  // On construit l'élément IMG via DOM pour mieux gérer les erreurs
+  const img = document.createElement("img");
+  img.src = src;
+  img.alt = alt || "Page";
+  img.loading = "lazy";
+  img.decoding = "async";
+  img.draggable = false;
+  img.addEventListener("error", () => onImgError(img, src));
+  return img;
+}
+
+function clearPage(el) {
+  el.innerHTML = "";
+  const err = el.querySelector(".img-error");
+  if (err) err.remove();
 }
 
 function render() {
+  if (!views || views.length === 0) {
+    clearPage(leftEl);
+    clearPage(rightEl);
+    showGlobalNotice("Aucune vue n'a pu être construite. Vérifiez que vos URLs pointent vers des images accessibles.");
+    indicator.textContent = "0 / 0";
+    prevBtn.disabled = true;
+    nextBtn.disabled = true;
+    return;
+  }
+
   const view = views[viewIndex] || { left: null, right: null };
-  leftEl.innerHTML = view.left ? imgTag(view.left, "Page gauche") : "";
-  rightEl.innerHTML = view.right ? imgTag(view.right, "Page droite") : "";
+
+  clearPage(leftEl);
+  clearPage(rightEl);
+
+  if (view.left) leftEl.appendChild(imgTag(view.left, "Page gauche"));
+  if (view.right) rightEl.appendChild(imgTag(view.right, "Page droite"));
 
   indicator.textContent = `Vue ${viewIndex + 1} / ${views.length}`;
   prevBtn.disabled = viewIndex === 0;
@@ -202,7 +276,7 @@ nextBtn.addEventListener("click", nextPage);
 // Navigation clavier (← →)
 document.addEventListener("keydown", (e) => {
   if (e.key === "ArrowRight") nextPage();
-  if (e.key === "ArrowLeft") prevPage();
+  if (e.key === "ArrowLeft")  prevPage();
 });
 
 // Gestes tactiles (swipe)
@@ -215,7 +289,6 @@ bookEl.addEventListener("touchend", (e) => {
   if (!touchStartX) return;
   const endX = (e.changedTouches && e.changedTouches[0]?.clientX) || 0;
   const dx = endX - touchStartX;
-  // Seuil minimal pour considérer un geste
   if (dx < -40) nextPage();
   else if (dx > 40) prevPage();
   touchStartX = 0;
