@@ -16,14 +16,14 @@
     --turn-duration: 850ms;
     --turn-ease: cubic-bezier(.45,.05,.15,1);
 
-    --spine-width: 26px;
+    --spine-width: 26px; /* sera ajusté dynamiquement en JS */
     --edge-shadow: rgba(0,0,0,0.18);
     --inner-shadow: rgba(0,0,0,0.28);
 
     --img-fade-duration: 220ms;
     --img-fade-ease: ease-out;
 
-    --paper: #fbfaf6;
+    --paper: #f7f1e3;
 
     /* Mis à jour en JS selon le format mm */
     --spread-aspect: 1.414;
@@ -36,10 +36,13 @@
 
   html, body { width: 100%; height: 100%; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  /* Fond clair du webpart (SharePoint) */
   body {
     font-family: Arial, sans-serif;
-    background: radial-gradient(ellipse at center, #3a3f47 0%, #1c1f24 100%);
+    background: #edf2fb; /* couleur demandée */
     overflow: hidden;
+    color: #333;
   }
 
   .app {
@@ -93,8 +96,8 @@
     overflow: visible;
     transform-style: preserve-3d;
     box-shadow:
-      0 30px 60px rgba(0,0,0,0.45),
-      0 8px 16px rgba(0,0,0,0.3);
+      0 30px 60px rgba(0,0,0,0.25),
+      0 8px 16px rgba(0,0,0,0.18);
     transition:
       width  var(--turn-duration) var(--turn-ease),
       height var(--turn-duration) var(--turn-ease);
@@ -142,8 +145,8 @@
       inset 0 0 24px rgba(0,0,0,0.35),
       0 0 18px rgba(0,0,0,0.25);
     border-radius: 3px;
-    transition: opacity 0.3s ease;
-    will-change: opacity;
+    transition: opacity 0.3s ease, width 0.2s ease; /* transition douce si la largeur change */
+    will-change: opacity, width;
   }
   .book.cover-mode .spine { opacity: 0; }
 
@@ -291,27 +294,17 @@
     padding: 10px 0 14px;
     align-items: center;
     background: transparent;
-    color: #eaeaea;
+    color: #333; /* contraste sur fond clair */
   }
-  button {
-    padding: 9px 22px;
-    border: 1px solid #ccc;
-    background: #fff;
-    cursor: pointer;
-    border-radius: 6px;
-    font-size: 0.95rem;
-    transition: transform 0.12s ease, box-shadow 0.12s ease;
-  }
-  button:not(:disabled):hover { box-shadow: 0 3px 8px rgba(0,0,0,0.15); transform: translateY(-1px); }
-  button:disabled { opacity: 0.4; cursor: default; }
 
-  #indicator { min-width: 160px; text-align: center; color: #eaeaea; font-size: 0.9rem; }
+  /* Indicateur + Zoom */
+  #indicator { min-width: 160px; text-align: center; color: #333; font-size: 0.9rem; }
 
   .zoom-control {
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    color: #eaeaea;
+    color: #333; /* lisible sur fond clair */
     font-size: 0.9rem;
   }
   .zoom-control input[type="range"] {
@@ -323,14 +316,74 @@
     text-align: right;
   }
 
+  /* Flèches latérales */
+  .side-arrow{
+    position:absolute;top:50%;transform:translateY(-50%);
+    width:60px;height:60px;border-radius:50%;
+    border:1px solid #c9d6e6;background:rgba(255,255,255,.9);
+    font-size:2rem;cursor:pointer;z-index:50;
+    box-shadow:0 4px 12px rgba(0,0,0,.2);transition:.2s;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .side-arrow:hover:not(:disabled){transform:translateY(-50%) scale(1.08);}
+  .side-arrow:disabled{opacity:.45;cursor:default;box-shadow:none;}
+  .left-arrow{left:20px;}
+  .right-arrow{right:20px;}
+
   @media (prefers-reduced-motion: reduce) {
     .flip, .flip-face, .lift-shadow, .page img, .page, .book { transition: none !important; }
+  }
+
+  /* ===================== AJOUTS POUR FLUIDITÉ ===================== */
+  /* Promotion GPU/captation et confinement pour limiter les repaints globaux */
+  .book,
+  .page,
+  .flip,
+  .flip-face,
+  .lift-shadow {
+    contain: layout paint style;
+    will-change: transform, opacity;
+  }
+  .flip,
+  .flip-face,
+  .page img {
+    transform: translateZ(0);
+  }
+
+  /* Allègement visuel pendant l'animation pour réduire le coût paint */
+  .book.animating .page::before,
+  .book.animating .page::after {
+    opacity: 0.6;
+  }
+  .book.animating .spine {
+    opacity: 0.5;
+  }
+
+  /* Transition d'opacité douce additionnelle (secours) */
+  .book,
+  .page {
+    transition:
+      width  var(--turn-duration) var(--turn-ease),
+      height var(--turn-duration) var(--turn-ease),
+      opacity 180ms ease-out;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .book.animating .page::before,
+    .book.animating .page::after,
+    .book.animating .spine {
+      opacity: 1;
+    }
   }
 </style>
 </head>
 <body>
 <div class="app">
   <div class="book-scene" aria-label="Lecteur de livre" id="scene">
+    <!-- Flèches latérales conservées -->
+    <button class="side-arrow left-arrow" id="sidePrev" aria-label="Page précédente">❮</button>
+    <button class="side-arrow right-arrow" id="sideNext" aria-label="Page suivante">❯</button>
+
     <div class="book-pedestal" id="pedestal">
       <div class="zoom-wrap" id="zoomWrap">
         <div class="book" role="region" aria-live="polite" id="book">
@@ -343,14 +396,14 @@
       </div>
     </div>
   </div>
-  <div class="controls">
-    <button id="prev" aria-label="Page précédente">← Précédent</button>
-    <span id="indicator" aria-live="polite"></span>
-    <button id="next" aria-label="Page suivante">Suivant →</button>
 
+  <!-- Contrôles bas: seuls l’indicateur et le zoom sont conservés -->
+  <div class="controls">
+    <span id="indicator" aria-live="polite"></span>
     <div class="zoom-control" aria-label="Contrôle du zoom">
       <label for="zoomRange">Zoom</label>
-      <input id="zoomRange" type="range" min="0.6" max="2" step="0.05" value="1" aria-valuemin="0.6" aria-valuemax="2" aria-valuenow="1" aria-label="Zoom du livre">
+      <input id="zoomRange" type="range" min="0.6" max="2" step="0.05" value="1"
+             aria-valuemin="0.6" aria-valuemax="2" aria-valuenow="1" aria-label="Zoom du livre">
       <span class="zoom-value" id="zoomLabel">100%</span>
     </div>
   </div>
@@ -365,20 +418,59 @@ const bookHeightMM = parseFloat(getComputedStyle(document.documentElement).getPr
 const pageRatio = bookWidthMM / bookHeightMM;        // ratio d'une page
 const spreadRatio = (2 * bookWidthMM) / bookHeightMM; // ratio d'un spread
 
+/* Durée tournée centralisée */
+const TURN_DURATION_MS = (() => {
+  const v = parseFloat(
+    getComputedStyle(document.documentElement).getPropertyValue('--turn-duration')
+  );
+  return Number.isFinite(v) ? v : 850;
+})();
+
 /* ============================================================
    2) URLS DES PAGES
+   (Correction : normaliser les URLs GitHub "blob" -> "raw" + encodage)
    ============================================================ */
+function normalizeUrl(url) {
+  if (typeof url !== "string") return null;
+
+  // GitHub blob -> raw
+  const blobPattern = /^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/([^/]+)\/(.+)$/i;
+  const m = url.match(blobPattern);
+  if (m) {
+    const owner = m[1];
+    const repo = m[2];
+    const branch = m[3];
+    const pathSegments = m[4].split('/').map(s => encodeURIComponent(s));
+    return `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${pathSegments.join('/')}`;
+  }
+
+  // Raw déjà présent: encoder les segments chemin si nécessaire
+  if (/^https?:\/\/raw\.githubusercontent\.com\//i.test(url)) {
+    const parts = url.split('/');
+    if (parts.length > 7) {
+      const head = parts.slice(0, 7).join('/');
+      const tail = parts.slice(7).map(s => encodeURIComponent(decodeURIComponent(s))).join('/');
+      return `${head}/${tail}`;
+    }
+    return url;
+  }
+
+  // Sinon, retourner tel quel
+  return url;
+}
+
+function toUrl(entry) {
+  if (typeof entry === "string") return normalizeUrl(entry);
+  if (entry && typeof entry === "object" && typeof entry.url === "string") return normalizeUrl(entry.url);
+  return null;
+}
+
 const pageInputs = [
   "https://raw.githubusercontent.com/ManonM15/Flipbook-sharepoint/main/LargeSolutionGuide1.png.jpg",
   "https://raw.githubusercontent.com/ManonM15/Flipbook-sharepoint/main/LargeSolutionGuide2.png.jpg",
   "https://raw.githubusercontent.com/ManonM15/Flipbook-sharepoint/main/LargeSolutionGuide3.png.jpg",
   "https://raw.githubusercontent.com/ManonM15/Flipbook-sharepoint/main/LargeSolutionGuide4.png.jpg"
 ];
-function toUrl(entry) {
-  if (typeof entry === "string") return entry;
-  if (entry && typeof entry === "object" && typeof entry.url === "string") return entry.url;
-  return null;
-}
 const pageUrls = pageInputs.map(toUrl).filter(Boolean);
 
 /* ============================================================
@@ -413,8 +505,6 @@ const views = buildViews(pageUrls);
    ============================================================ */
 const leftEl = document.getElementById("left");
 const rightEl = document.getElementById("right");
-const prevBtn = document.getElementById("prev");
-const nextBtn = document.getElementById("next");
 const indicator = document.getElementById("indicator");
 const bookEl = document.getElementById("book");
 const liftRight = document.getElementById("liftRight");
@@ -424,13 +514,24 @@ const scene = document.getElementById("scene");
 const zoomWrap = document.getElementById("zoomWrap");
 const zoomRange = document.getElementById("zoomRange");
 const zoomLabel = document.getElementById("zoomLabel");
+const sidePrev = document.getElementById("sidePrev");
+const sideNext = document.getElementById("sideNext");
 
 let viewIndex = 0;
 let isAnimating = false;
 
 /* ============================================================
-   5) ADAPTATION DU LIVRE AU CONTENEUR
+   5) ADAPTATION DU LIVRE AU CONTENEUR + RELIURE
    ============================================================ */
+function updateSpineWidth() {
+  const bookRect = bookEl.getBoundingClientRect();
+  if (!bookRect.width) return;
+
+  const proportional = bookRect.width * 0.018; // 1.8% de la largeur
+  const spinePx = Math.max(8, Math.min(36, proportional)); // 8px à 36px
+  document.documentElement.style.setProperty('--spine-width', spinePx.toFixed(1) + 'px');
+}
+
 function fitBookToContainer() {
   const sceneRect = scene.getBoundingClientRect();
   const availW = Math.max(0, sceneRect.width - 24);
@@ -450,12 +551,23 @@ function fitBookToContainer() {
   bookEl.style.width = w + "px";
   bookEl.style.height = h + "px";
 
+  updateSpineWidth();
   updatePanBoundsAndClamp();
   updatePannableState();
 }
-const resizeObserver = new ResizeObserver(() => fitBookToContainer());
+
+/* Debounce via rAF pour resize/observer */
+let fitRaf = null;
+function scheduleFit() {
+  if (fitRaf) return;
+  fitRaf = requestAnimationFrame(() => {
+    fitRaf = null;
+    fitBookToContainer();
+  });
+}
+const resizeObserver = new ResizeObserver(scheduleFit);
 resizeObserver.observe(scene);
-window.addEventListener("resize", fitBookToContainer);
+window.addEventListener("resize", scheduleFit);
 
 /* ============================================================
    6) AFFICHAGE D'UNE VUE
@@ -478,6 +590,15 @@ function imgElem(src, alt) {
 }
 function clearPage(el) { el.innerHTML = ""; }
 
+/* Ajout: insertion via fragment pour limiter le thrash DOM */
+function setPageContent(el, src, alt) {
+  el.innerHTML = "";
+  if (!src) return;
+  const frag = document.createDocumentFragment();
+  frag.appendChild(imgElem(src, alt));
+  el.appendChild(frag);
+}
+
 function applyCoverMode(view) {
   const isCover = view.cover === "front" || view.cover === "back";
   bookEl.classList.toggle("cover-mode", isCover);
@@ -496,32 +617,49 @@ function applyCoverMode(view) {
   }
 }
 
-function renderStatic() {
-  const view = views[viewIndex] || { left: null, right: null };
-  clearPage(leftEl);
-  clearPage(rightEl);
-  applyCoverMode(view);
-  fitBookToContainer();
-  if (view.left)  leftEl.appendChild(imgElem(view.left, "Page gauche"));
-  if (view.right) rightEl.appendChild(imgElem(view.right, "Page droite"));
-  indicator.textContent = views.length ? `Vue ${viewIndex + 1} / ${views.length}` : "Aucune page";
-  prevBtn.disabled = viewIndex === 0 || isAnimating;
-  nextBtn.disabled = viewIndex >= views.length - 1 || isAnimating;
-}
-
-/* ============================================================
-   7) UTILS ANIMATION
-   ============================================================ */
+/* Préchargement des vues adjacentes pour fluidifier */
 function preload(src) {
   return new Promise(resolve => {
     if (!src) return resolve();
     const img = new Image();
     img.decoding = "async";
     img.onload = () => resolve();
-    img.onerror = () => resolve(); // on ne bloque pas l'anim en cas d'échec
+    img.onerror = () => resolve();
     img.src = src;
   });
 }
+function preloadAdjacent(index) {
+  const prev = views[index - 1];
+  const next = views[index + 1];
+  const urls = [];
+  if (prev) { if (prev.left) urls.push(prev.left); if (prev.right) urls.push(prev.right); }
+  if (next) { if (next.left) urls.push(next.left); if (next.right) urls.push(next.right); }
+  urls.forEach(u => preload(u));
+}
+
+function renderStatic() {
+  const view = views[viewIndex] || { left: null, right: null };
+  clearPage(leftEl);
+  clearPage(rightEl);
+  applyCoverMode(view);
+  fitBookToContainer();
+
+  setPageContent(leftEl,  view.left,  "Page gauche");
+  setPageContent(rightEl, view.right, "Page droite");
+
+  indicator.textContent = views.length ? `Vue ${viewIndex + 1} / ${views.length}` : "Aucune page";
+
+  // Met à jour l'état des flèches latérales
+  sidePrev.disabled = isAnimating || viewIndex === 0;
+  sideNext.disabled = isAnimating || viewIndex >= views.length - 1;
+
+  // Précharge les vues adjacentes
+  preloadAdjacent(viewIndex);
+}
+
+/* ============================================================
+   7) UTILS ANIMATION
+   ============================================================ */
 function easeInOut(t) {
   return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
 }
@@ -570,13 +708,16 @@ function animateRAF(duration, onUpdate, onDone) {
 function animateTurn(direction, onComplete) {
   if (isAnimating) return;
   isAnimating = true;
-  prevBtn.disabled = true;
-  nextBtn.disabled = true;
+  bookEl.classList.add("animating");   // allègement visuel pendant l'anim
+
+  // Verrouille les flèches pendant l'animation
+  sidePrev.disabled = true;
+  sideNext.disabled = true;
 
   const currentView = views[viewIndex] || {};
   const nextIndex = direction === "next" ? viewIndex + 1 : viewIndex - 1;
   const nextView = views[nextIndex] || {};
-  const durationMs = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--turn-duration')) || 850;
+  const durationMs = TURN_DURATION_MS;
 
   const leavingFrontCover = (direction === "next" && currentView.cover === "front");
   const enteringFrontCover = (direction === "prev" && nextView.cover === "front");
@@ -593,10 +734,10 @@ function animateTurn(direction, onComplete) {
       leftEl.style.width = "50%";
       rightEl.style.width = "50%";
       clearPage(leftEl); clearPage(rightEl);
-      if (nextView.left)  leftEl.appendChild(imgElem(nextView.left, "Page gauche"));
-      if (nextView.right) rightEl.appendChild(imgElem(nextView.right, "Page droite"));
+      setPageContent(leftEl,  nextView.left,  "Page gauche");
+      setPageContent(rightEl, nextView.right, "Page droite");
       // Le livre change de ratio (page -> spread) avec transition CSS
-      fitBookToContainer();
+      fitBookToContainer(); // inclut updateSpineWidth
     }
 
     Promise.all([preload(coverImgSrc)]).then(() => {
@@ -639,6 +780,7 @@ function animateTurn(direction, onComplete) {
 
         onComplete && onComplete();
         isAnimating = false;
+        bookEl.classList.remove("animating");
         renderStatic();
       });
     });
@@ -656,9 +798,9 @@ function animateTurn(direction, onComplete) {
       leftEl.style.width = "50%";
       rightEl.style.width = "50%";
       clearPage(leftEl); clearPage(rightEl);
-      if (nextView.left)  leftEl.appendChild(imgElem(nextView.left, "Page gauche"));
-      if (nextView.right) rightEl.appendChild(imgElem(nextView.right, "Page droite"));
-      fitBookToContainer();
+      setPageContent(leftEl,  nextView.left,  "Page gauche");
+      setPageContent(rightEl, nextView.right, "Page droite");
+      fitBookToContainer(); // inclut updateSpineWidth
     }
 
     Promise.all([preload(frontPageSrc), preload(coverImgSrc)]).then(() => {
@@ -711,6 +853,7 @@ function animateTurn(direction, onComplete) {
 
         onComplete && onComplete();
         isAnimating = false;
+        bookEl.classList.remove("animating");
         renderStatic();
       });
     });
@@ -722,6 +865,7 @@ function animateTurn(direction, onComplete) {
   if (!hasSheet) {
     onComplete && onComplete();
     isAnimating = false;
+    bookEl.classList.remove("animating");
     renderStatic();
     return;
   }
@@ -760,6 +904,7 @@ function animateTurn(direction, onComplete) {
       liftLeft.style.opacity = "0";
       onComplete && onComplete();
       isAnimating = false;
+      bookEl.classList.remove("animating");
       renderStatic();
     });
   });
@@ -901,12 +1046,17 @@ pedestal.addEventListener('wheel', (e) => {
 /* ============================================================
    12) ÉVÉNEMENTS PAGE
    ============================================================ */
-prevBtn.addEventListener("click", prevPage);
-nextBtn.addEventListener("click", nextPage);
+// Flèches latérales
+sidePrev.addEventListener("click", prevPage);
+sideNext.addEventListener("click", nextPage);
+
+// Clavier
 document.addEventListener("keydown", (e) => {
   if (e.key === "ArrowRight") nextPage();
   if (e.key === "ArrowLeft")  prevPage();
 });
+
+// Gestes tactiles
 let touchStartX = 0;
 bookEl.addEventListener("touchstart", (e) => {
   if (e.touches && e.touches.length === 1) touchStartX = e.touches[0].clientX;
@@ -919,6 +1069,10 @@ bookEl.addEventListener("touchend", (e) => {
   else if (dx > 40) prevPage();
   touchStartX = 0;
 }, { passive: true });
+
+// Clic direct sur les pages
+leftEl.addEventListener("click",()=>{ if(!isAnimating && viewIndex>0) prevPage(); });
+rightEl.addEventListener("click",()=>{ if(!isAnimating && viewIndex<views.length-1) nextPage(); });
 
 /* ============================================================
    13) INIT
