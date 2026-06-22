@@ -96,7 +96,7 @@ body{font-family:Arial,sans-serif;background:#edf2fb;overflow:hidden;color:#333}
 /* Feuille animée */
 .flip{position:absolute;top:0;bottom:0;width:50%;z-index:6;transform-style:preserve-3d;pointer-events:none;will-change:transform}
 .flip.cov{width:100%}
-.face{position:absolute;inset:0;overflow:hidden;background:var(--pape"https://github.com/ManonM15/Flipbook-sharepoint/blob/main/BookLargeSolution(1).png"r);
+.face{position:absolute;inset:0;overflow:hidden;background:var(--paper);
   backface-visibility:hidden;-webkit-backface-visibility:hidden;display:flex;align-items:center;justify-content:center}
 .face img{width:100%;height:100%;object-fit:contain;pointer-events:none}
 .face.bk{transform:rotateY(180deg)}
@@ -168,276 +168,388 @@ body{font-family:Arial,sans-serif;background:#edf2fb;overflow:hidden;color:#333}
     <button class="ibtn" id="fs" aria-label="Plein écran" title="Plein écran">⛶</button>
   </div>
 </div>
+
 <script>
 /* ── CONFIG ── */
-const PW=210, PH=297, pRatio=PW/PH, sRatio=2*PW/PH;
+const PW = 210, PH = 297;
+const pRatio = PW / PH, sRatio = (2 * PW) / PH;
 
-/* ── URLS ── */
-const normalize = url => {
-  if (typeof url !== "string") return null;
-  const m = url.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/([^/]+)\/(.+)$/i);
-  if (m) return `https://raw.githubusercontent.com/${m[1]}/${m[2]}/${m[3]}/${m[4].split('/').map(encodeURIComponent).join('/')}`;
-  if (/raw\.githubusercontent\.com/i.test(url)) {
-    const p=url.split('/');
-    return p.length>7 ? p.slice(0,7).join('/')+'/'+p.slice(7).map(s=>encodeURIComponent(decodeURIComponent(s))).join('/') : url;
+/* ── DOM ── */
+const $ = id => document.getElementById(id);
+const PL = $("PL"), PR = $("PR"), book = $("book"), scene = $("scene"), ped = $("ped"), zw = $("zw");
+const lR = $("lR"), lL = $("lL"), ind = $("ind"), prog = $("prog"), thumbsEl = $("thumbs"), zr = $("zr"), zl = $("zl");
+const btnPrev = $("prev"), btnNext = $("next"), fsBtn = $("fs"), zmBtn = $("zm"), zpBtn = $("zp");
+
+/* ── STATE ── */
+let vi = 0, busy = false;
+const cache = new Set();
+let pan = { x: 0, y: 0 }, pMax = { x: 0, y: 0 }, drag = null, pinch = null;
+let rT;
+
+/* ── UTILS ── */
+const on = (el, evt, fn, opt) => el.addEventListener(evt, fn, opt);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const clear = el => { while (el.firstChild) el.removeChild(el.firstChild); };
+const getCSS = prop => getComputedStyle(document.documentElement).getPropertyValue(prop);
+const setCSS = (prop, val) => document.documentElement.style.setProperty(prop, val);
+const getZ = () => parseFloat(getCSS("--zoom")) || 1;
+const getDur = () => parseFloat(getCSS("--dur")) || 900;
+
+/* ── URLS (normalisation GitHub → raw.githubusercontent) ── */
+const normalize = src => {
+  if (typeof src !== "string") return null;
+  try {
+    const u = new URL(src);
+    if (u.hostname === "github.com") {
+      const parts = u.pathname.split("/").filter(Boolean);
+      const [org, repo, blob, branch, ...rest] = parts;
+      if (blob === "blob" && org && repo && branch && rest.length) {
+        const enc = rest.map(s => encodeURIComponent(decodeURIComponent(s))).join("/");
+        return `https://raw.githubusercontent.com/${org}/${repo}/${branch}/${enc}`;
+      }
+    }
+    if (u.hostname === "raw.githubusercontent.com") {
+      const parts = u.pathname.split("/").filter(Boolean);
+      if (parts.length > 4) {
+        const head = parts.slice(0, 4).join("/");
+        const tail = parts.slice(4).map(s => encodeURIComponent(decodeURIComponent(s))).join("/");
+        return `https://raw.githubusercontent.com/${head}/${tail}`;
+      }
+    }
+    return u.toString();
+  } catch {
+    return src;
   }
-  return url;
 };
 
 const PAGES = [
-  "https://github.com/ManonM15/Flipbook-sharepoint/blob/main/BookLargeSolution(1).png",
-  "https://github.com/ManonM15/Flipbook-sharepoint/blob/main/BookLargeSolution(2).png",
-  "https://github.com/ManonM15/Flipbook-sharepoint/blob/main/BookLargeSolution(3).png",
-  "https://github.com/ManonM15/Flipbook-sharepoint/blob/main/BookLargeSolution(4).png",
+  "https://github.com/ManonM15/Flipbook-sharepoint/blob/main/BookLargeSolution(P1).png",
+  "https://github.com/ManonM15/Flipbook-sharepoint/blob/main/BookLargeSolution(P2).png",
+  "https://github.com/ManonM15/Flipbook-sharepoint/blob/main/BookLargeSolution(P3).png",
+  "https://github.com/ManonM15/Flipbook-sharepoint/blob/main/BookLargeSolution(P4).png",
+  "https://github.com/ManonM15/Flipbook-sharepoint/blob/main/BookLargeSolution(P5).png"
 ].map(normalize).filter(Boolean);
 
 /* ── VUES ── */
 const views = (() => {
-  const v=[{l:null,r:PAGES[0],cv:"front"}];
-  for (let i=1;i<PAGES.length;) {
-    if (i===PAGES.length-1) { v.push({l:PAGES[i],r:null,cv:"back"}); i++; }
-    else { v.push({l:PAGES[i],r:PAGES[i+1],cv:false}); i+=2; }
+  const v = [];
+  if (PAGES.length > 0) v.push({ l: null, r: PAGES[0], cv: "front" });
+  for (let i = 1; i < PAGES.length; ) {
+    if (i === PAGES.length - 1) { v.push({ l: PAGES[i], r: null, cv: "back" }); i++; }
+    else { v.push({ l: PAGES[i], r: PAGES[i + 1], cv: false }); i += 2; }
   }
   return v;
 })();
 
-/* ── DOM ── */
-const $=id=>document.getElementById(id);
-const PL=$("PL"),PR=$("PR"),book=$("book"),scene=$("scene"),ped=$("ped"),zw=$("zw");
-const lR=$("lR"),lL=$("lL"),ind=$("ind"),prog=$("prog"),thumbsEl=$("thumbs"),zr=$("zr"),zl=$("zl");
-const btnPrev=$("prev"),btnNext=$("next");
-let vi=0, busy=false;
-
 /* ── IMAGES ── */
-const cache=new Set();
-const mkImg=(src,alt)=>{
-  const img=document.createElement("img");
-  img.alt=alt||""; img.loading="lazy"; img.decoding="async"; img.draggable=false; img.src=src;
-  img.addEventListener("load",()=>{cache.add(src);requestAnimationFrame(()=>img.classList.add("on"));});
-  img.addEventListener("error",()=>{img.style.opacity=.3;img.classList.add("on");});
+const mkImg = (src, alt = "") => {
+  const img = document.createElement("img");
+  img.alt = alt; img.loading = "lazy"; img.decoding = "async"; img.draggable = false; img.src = src;
+  on(img, "load", () => { cache.add(src); requestAnimationFrame(() => img.classList.add("on")); });
+  on(img, "error", () => { img.style.opacity = .3; img.classList.add("on"); });
   return img;
 };
-const preload=src=>src&&!cache.has(src)?new Promise(r=>{const i=new Image();i.onload=i.onerror=r;i.src=src;}):Promise.resolve();
-const mkSpinner=()=>{const d=document.createElement("div");d.className="spin-wrap";d.innerHTML='<div class="spin"></div>';return d;};
+const preload = src => (src && !cache.has(src))
+  ? new Promise(res => { const i = new Image(); i.onload = i.onerror = res; i.src = src; })
+  : Promise.resolve();
 
-/* ── TAILLE ── */
-let rT;
-const fit=()=>{
-  const {width:W,height:H}=scene.getBoundingClientRect();
-  const isCov=views[vi]?.cv, ratio=isCov?pRatio:sRatio;
-  let w=W-24, h=w/ratio;
-  if(h>H-24){h=H-24;w=h*ratio;}
-  book.style.width=w+"px"; book.style.height=h+"px";
-  document.documentElement.style.setProperty("--sw",Math.max(8,Math.min(36,w*.018)).toFixed(1)+"px");
-  panClamp(); pannableState();
-};
-new ResizeObserver(()=>{clearTimeout(rT);rT=setTimeout(fit,40);}).observe(scene);
-
-/* ── RENDER ── */
-const applyLayout=v=>{
-  const isCov=v.cv==="front"||v.cv==="back";
-  book.classList.toggle("cv",isCov);
-  book.classList.toggle("nl",!v.l);
-  book.classList.toggle("nr",!v.r);
-  PL.style.width=v.cv==="front"?"0%":v.cv==="back"?"100%":"50%";
-  PR.style.width=v.cv==="front"?"100%":v.cv==="back"?"0%":"50%";
+const mkSpinner = () => {
+  const d = document.createElement("div");
+  d.className = "spin-wrap";
+  d.innerHTML = '<div class="spin"></div>';
+  return d;
 };
 
-const setPage=(el,src,alt)=>{
-  if(!src) return;
-  const sp=mkSpinner(); el.appendChild(sp);
-  const img=mkImg(src,alt); el.appendChild(img);
-  img.addEventListener("load",()=>sp.remove(),{once:true});
-  img.addEventListener("error",()=>sp.remove(),{once:true});
+/* ── LAYOUT (taille et disposition) ── */
+const fit = () => {
+  const { width: W, height: H } = scene.getBoundingClientRect();
+  const isCov = views[vi]?.cv;
+  const ratio = isCov ? pRatio : sRatio;
+  let w = W - 24, h = w / ratio;
+  if (h > H - 24) { h = H - 24; w = h * ratio; }
+  book.style.width = w + "px"; book.style.height = h + "px";
+  setCSS("--sw", Math.max(8, Math.min(36, w * .018)).toFixed(1) + "px");
+  updatePanState();
+};
+new ResizeObserver(() => { clearTimeout(rT); rT = setTimeout(fit, 40); }).observe(scene);
+
+const applyLayout = v => {
+  const isFront = v.cv === "front", isBack = v.cv === "back", isCov = isFront || isBack;
+  book.classList.toggle("cv", isCov);
+  book.classList.toggle("nl", !v.l);
+  book.classList.toggle("nr", !v.r);
+  PL.style.width = isFront ? "0%" : isBack ? "100%" : "50%";
+  PR.style.width = isFront ? "100%" : isBack ? "0%" : "50%";
 };
 
-const render=()=>{
-  const v=views[vi]||{};
-  [PL,PR].forEach(el=>el.innerHTML="");
+const setPage = (el, src, alt) => {
+  if (!src) return;
+  const sp = mkSpinner(); el.appendChild(sp);
+  const img = mkImg(src, alt); el.appendChild(img);
+  const rm = () => sp.remove();
+  on(img, "load", rm, { once: true });
+  on(img, "error", rm, { once: true });
+};
+
+const render = () => {
+  const v = views[vi] || {};
+  clear(PL); clear(PR);
   applyLayout(v); fit();
-  setPage(PL,v.l,"Page gauche"); setPage(PR,v.r,"Page droite");
-  ind.textContent=`Vue ${vi+1} / ${views.length}`;
-  btnPrev.disabled=busy||vi===0; btnNext.disabled=busy||vi>=views.length-1;
-  prog.style.width=(views.length<=1?100:vi/(views.length-1)*100)+"%";
-  thumbsEl.querySelectorAll(".thumb").forEach((t,i)=>t.classList.toggle("on",i===vi));
-  thumbsEl.querySelector(".thumb.on")?.scrollIntoView({behavior:"smooth",block:"nearest",inline:"center"});
-  [-1,1,2].forEach(d=>{const v=views[vi+d];if(v){preload(v.l);preload(v.r);}});
+  setPage(PL, v.l, "Page gauche");
+  setPage(PR, v.r, "Page droite");
+  ind.textContent = `Vue ${vi + 1} / ${views.length}`;
+  btnPrev.disabled = busy || vi === 0;
+  btnNext.disabled = busy || vi >= views.length - 1;
+  prog.style.width = (views.length <= 1 ? 100 : (vi / (views.length - 1) * 100)) + "%";
+  thumbsEl.querySelectorAll(".thumb").forEach((t, i) => t.classList.toggle("on", i === vi));
+  thumbsEl.querySelector(".thumb.on")?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+  [-1, 1, 2].forEach(d => { const nv = views[vi + d]; if (nv) { preload(nv.l); preload(nv.r); } });
 };
 
 /* ── MINIATURES ── */
-views.forEach((v,i)=>{
-  const src=v.r||v.l; if(!src) return;
-  const div=document.createElement("div");
-  div.className="thumb"+(i===0?" on":"");
-  div.setAttribute("role","button"); div.setAttribute("aria-label",`Vue ${i+1}`); div.tabIndex=0;
-  div.innerHTML=`<img src="${src}" alt="Vue ${i+1}" loading="lazy">`;
-  div.addEventListener("click",()=>{if(!busy&&i!==vi)jumpTo(i);});
-  div.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();div.click();}});
-  thumbsEl.appendChild(div);
-});
-
-const jumpTo=target=>{
-  if(busy)return;
-  const dir=target>vi?"next":"prev";
-  const step=()=>{if(vi===target){render();return;} turn(dir,()=>{vi+=dir==="next"?1:-1;vi!==target?setTimeout(step,50):render();});};
-  step();
-};
+(() => {
+  const frag = document.createDocumentFragment();
+  views.forEach((v, i) => {
+    const src = v.r || v.l; if (!src) return;
+    const div = document.createElement("div");
+    div.className = "thumb" + (i === 0 ? " on" : "");
+    div.setAttribute("role", "button");
+    div.setAttribute("aria-label", `Vue ${i + 1}`);
+    div.tabIndex = 0;
+    div.innerHTML = `<img src="${src}" alt="Vue ${i + 1}" loading="lazy">`;
+    on(div, "click", () => { if (!busy && i !== vi) jumpTo(i); });
+    on(div, "keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); div.click(); } });
+    frag.appendChild(div);
+  });
+  thumbsEl.appendChild(frag);
+})();
 
 /* ── ANIMATION ── */
-const eio=t=>t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;
-const rafAnim=(ms,upd,end)=>{const s=performance.now();const f=n=>{const t=Math.min((n-s)/ms,1);upd(eio(t));t<1?requestAnimationFrame(f):end?.();};requestAnimationFrame(f);};
-const getDur=()=>parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--dur"))||900;
-
-const mkFace=(extra,src,alt)=>{
-  const d=document.createElement("div"); d.className="face"+extra;
-  if(src)d.appendChild(mkImg(src,alt));
-  const cr=document.createElement("div"); cr.className="crease"; d.appendChild(cr);
-  return {el:d,cr};
+const eio = t => t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+const rafAnim = (ms, upd, end) => {
+  const s = performance.now();
+  const f = n => { const t = Math.min((n - s) / ms, 1); upd(eio(t)); t < 1 ? requestAnimationFrame(f) : end?.(); };
+  requestAnimationFrame(f);
 };
 
-const runAnim=(flip,front,back,lsh,ms,fromLeft,onEnd)=>{
-  lsh.style.opacity="0";
-  rafAnim(ms,p=>{
-    const angle=fromLeft?-180*p:180*p;
-    flip.style.transform=`rotateY(${angle}deg) rotateX(${Math.sin(p*Math.PI)*7}deg)`;
-    const c=Math.sin(p*Math.PI)*.92;
-    front.cr.style.opacity=back.cr.style.opacity=String(c);
-    lsh.style.opacity=String(c*.98);
-  },()=>{flip.remove();lsh.style.opacity="0";onEnd();});
+const mkFace = (extra, src, alt) => {
+  const d = document.createElement("div"); d.className = "face" + extra;
+  if (src) d.appendChild(mkImg(src, alt));
+  const cr = document.createElement("div"); cr.className = "crease"; d.appendChild(cr);
+  return { el: d, cr };
 };
 
-const turn=(dir,cb)=>{
-  if(busy)return; busy=true; btnPrev.disabled=btnNext.disabled=true;
-  const cv=views[vi]||{}, ni=vi+(dir==="next"?1:-1), nv=views[ni]||{}, ms=getDur();
-  const done=()=>{cb?.();busy=false;render();};
+const mkFlip = (fullWidth, leftPos, pivot) => {
+  const f = document.createElement("div");
+  f.className = "flip" + (fullWidth ? " cov" : "");
+  f.style.transformOrigin = pivot;
+  f.style.left = leftPos;
+  return f;
+};
 
-  const buildFlip=(isFull,origLeft,leftPos)=>{
-    const f=document.createElement("div");
-    f.className="flip"+(isFull?" cov":"");
-    f.style.transformOrigin=origLeft?"left center":"right center";
-    f.style.left=leftPos; return f;
-  };
+const setLsh = (el, cls) => { el.className = "lsh " + cls; };
 
-  /* Couverture avant */
-  if((dir==="next"&&cv.cv==="front")||(dir==="prev"&&nv.cv==="front")){
-    const src=dir==="next"?cv.r:nv.r;
-    if(dir==="next"){book.classList.remove("cv","nl","nr");PL.style.width=PR.style.width="50%";PL.innerHTML=PR.innerHTML="";if(nv.l)PL.appendChild(mkImg(nv.l,"g"));if(nv.r)PR.appendChild(mkImg(nv.r,"d"));fit();}
-    preload(src).then(()=>{
-      const flip=buildFlip(true,true,"0%"),front=mkFace("",src,"Couverture"),back=mkFace(" bk",null,"");
-      flip.appendChild(front.el);flip.appendChild(back.el);book.appendChild(flip);
-      lR.className="lsh cfr"; runAnim(flip,front,back,lR,ms,true,()=>{lR.className="lsh fr";done();});
+const runAnim = (flip, front, back, lsh, ms, startDeg, endDeg, onEnd) => {
+  lsh.style.opacity = "0";
+  rafAnim(ms, p => {
+    const angle = startDeg + (endDeg - startDeg) * p;
+    flip.style.transform = `rotateY(${angle}deg) rotateX(${Math.sin(p * Math.PI) * 7}deg)`;
+    const c = Math.sin(p * Math.PI) * .92;
+    front.cr.style.opacity = back.cr.style.opacity = String(c);
+    lsh.style.opacity = String(c * .98);
+  }, () => { flip.remove(); lsh.style.opacity = "0"; onEnd(); });
+};
+
+const turn = (dir, cb) => {
+  if (busy) return; busy = true; btnPrev.disabled = btnNext.disabled = true;
+  const cv = views[vi] || {}, ni = vi + (dir === "next" ? 1 : -1), nv = views[ni] || {}, ms = getDur();
+  const done = () => { cb?.(); busy = false; render(); };
+
+  // Couverture avant (front)
+  if ((dir === "next" && cv.cv === "front") || (dir === "prev" && nv.cv === "front")) {
+    const src = dir === "next" ? cv.r : nv.r;
+    if (dir === "next") {
+      book.classList.remove("cv", "nl", "nr"); PL.style.width = PR.style.width = "50%"; clear(PL); clear(PR);
+      if (nv.l) PL.appendChild(mkImg(nv.l, "g")); if (nv.r) PR.appendChild(mkImg(nv.r, "d")); fit();
+    }
+    preload(src).then(() => {
+      const flip = mkFlip(true, "0%", "left center");
+      const front = mkFace("", src, "Couverture"), back = mkFace(" bk", null, "");
+      flip.appendChild(front.el); flip.appendChild(back.el); book.appendChild(flip);
+      if (dir === "next") {
+        setLsh(lR, "cfr");
+        runAnim(flip, front, back, lR, ms, 0, -180, () => { setLsh(lR, "fr"); done(); });
+      } else {
+        setLsh(lL, "cfl");
+        runAnim(flip, front, back, lL, ms, -180, 0, () => { setLsh(lL, "fl"); done(); });
+      }
     });
     return;
   }
 
-  /* 4e de couverture */
-  if((dir==="next"&&nv.cv==="back")||(dir==="prev"&&cv.cv==="back")){
-    const fSrc=dir==="next"?cv.r:nv.r, bSrc=dir==="next"?nv.l:cv.l;
-    if(dir==="prev"){book.classList.remove("cv","nl","nr");PL.style.width=PR.style.width="50%";PL.innerHTML=PR.innerHTML="";if(nv.l)PL.appendChild(mkImg(nv.l,"g"));if(nv.r)PR.appendChild(mkImg(nv.r,"d"));fit();}
-    Promise.all([preload(fSrc),preload(bSrc)]).then(()=>{
-      const flip=buildFlip(false,false,"50%"),front=mkFace("",fSrc,"Recto"),back=mkFace(" bk",bSrc,"4e");
-      flip.appendChild(front.el);flip.appendChild(back.el);book.appendChild(flip);
-      PR.innerHTML=""; lL.className="lsh cfl";
-      runAnim(flip,front,back,lL,ms,false,()=>{
-        lL.className="lsh fl";
-        if(dir==="next"){book.classList.add("cv","nr");PL.style.width="100%";PR.style.width="0%";}
-        done();
-      });
+  // 4e de couverture (back)
+  if ((dir === "next" && nv.cv === "back") || (dir === "prev" && cv.cv === "back")) {
+    const fSrc = dir === "next" ? cv.r : nv.r, bSrc = dir === "next" ? nv.l : cv.l;
+    if (dir === "prev") {
+      book.classList.remove("cv", "nl", "nr"); PL.style.width = PR.style.width = "50%"; clear(PL); clear(PR);
+      if (nv.l) PL.appendChild(mkImg(nv.l, "g")); if (nv.r) PR.appendChild(mkImg(nv.r, "d")); fit();
+    }
+    Promise.all([preload(fSrc), preload(bSrc)]).then(() => {
+      if (dir === "next") {
+        const flip = mkFlip(false, "50%", "left center");
+        const front = mkFace("", fSrc, "Recto"), back = mkFace(" bk", bSrc, "4e");
+        flip.appendChild(front.el); flip.appendChild(back.el); book.appendChild(flip);
+        clear(PR); setLsh(lL, "cfl");
+        runAnim(flip, front, back, lL, ms, 0, -180, () => {
+          setLsh(lL, "fl");
+          book.classList.add("cv", "nr"); PL.style.width = "100%"; PR.style.width = "0%";
+          done();
+        });
+      } else {
+        const flip = mkFlip(false, "0%", "right center");
+        const front = mkFace("", fSrc, "Recto"), back = mkFace(" bk", bSrc, "4e");
+        flip.appendChild(front.el); flip.appendChild(back.el); book.appendChild(flip);
+        setLsh(lR, "cfr");
+        runAnim(flip, front, back, lR, ms, 0, 180, () => { setLsh(lR, "fr"); done(); });
+      }
     });
     return;
   }
 
-  /* Tourne-page normal */
-  const fSrc=dir==="next"?cv.r:cv.l, bSrc=dir==="next"?nv.l:nv.r;
-  if(!fSrc){done();return;}
-  Promise.all([preload(fSrc),preload(bSrc)]).then(()=>{
-    const isNext=dir==="next";
-    const flip=buildFlip(false,isNext,isNext?"50%":"0%");
-    const front=mkFace("",fSrc,"Recto"),back=mkFace(" bk",bSrc,"Verso");
-    flip.appendChild(front.el);flip.appendChild(back.el);book.appendChild(flip);
-    const lsh=isNext?lR:lL;
-    runAnim(flip,front,back,lsh,ms,isNext,done);
+  // Page normale
+  const fSrc = dir === "next" ? cv.r : cv.l, bSrc = dir === "next" ? nv.l : nv.r;
+  if (!fSrc) { done(); return; }
+  Promise.all([preload(fSrc), preload(bSrc)]).then(() => {
+    if (dir === "next") {
+      const flip = mkFlip(false, "50%", "left center");
+      const front = mkFace("", fSrc, "Recto"), back = mkFace(" bk", bSrc, "Verso");
+      flip.appendChild(front.el); flip.appendChild(back.el); book.appendChild(flip);
+      setLsh(lL, "fl");
+      runAnim(flip, front, back, lL, ms, 0, -180, done);
+    } else {
+      const flip = mkFlip(false, "0%", "right center");
+      const front = mkFace("", fSrc, "Verso"), back = mkFace(" bk", bSrc, "Recto");
+      flip.appendChild(front.el); flip.appendChild(back.el); book.appendChild(flip);
+      setLsh(lR, "fr");
+      runAnim(flip, front, back, lR, ms, 0, 180, done);
+    }
   });
 };
 
 /* ── NAVIGATION ── */
-const go=dir=>{
-  if(busy)return;
-  if(dir==="next"&&vi<views.length-1) turn("next",()=>vi++);
-  else if(dir==="prev"&&vi>0) turn("prev",()=>vi--);
+const go = dir => {
+  if (busy) return;
+  if (dir === "next" && vi < views.length - 1) turn("next", () => vi++);
+  else if (dir === "prev" && vi > 0) turn("prev", () => vi--);
 };
-btnNext.addEventListener("click",()=>go("next"));
-btnPrev.addEventListener("click",()=>go("prev"));
-PL.addEventListener("click",()=>{if(!busy&&vi>0)go("prev");});
-PR.addEventListener("click",()=>{if(!busy&&vi<views.length-1)go("next");});
+const jumpTo = target => {
+  if (busy || target === vi) return;
+  const step = target > vi ? 1 : -1;
+  const loop = () => {
+    if (vi === target) { render(); return; }
+    const dir = step > 0 ? "next" : "prev";
+    turn(dir, () => { vi += step; setTimeout(loop, 40); });
+  };
+  loop();
+};
 
-/* Swipe */
-let tx=0,ty=0;
-book.addEventListener("touchstart",e=>{if(e.touches.length===1){tx=e.touches[0].clientX;ty=e.touches[0].clientY;}},{passive:true});
-book.addEventListener("touchend",e=>{
-  const dx=(e.changedTouches[0]?.clientX||0)-tx,dy=(e.changedTouches[0]?.clientY||0)-ty;
-  if(Math.abs(dx)>Math.abs(dy)&&Math.abs(dx)>35)go(dx<0?"next":"prev");
-  tx=ty=0;
-},{passive:true});
+on(btnNext, "click", () => go("next"));
+on(btnPrev, "click", () => go("prev"));
+on(PL, "click", () => { if (!busy && vi > 0) go("prev"); });
+on(PR, "click", () => { if (!busy && vi < views.length - 1) go("next"); });
+
+/* Swipe tactiles simples */
+let tx = 0, ty = 0;
+on(book, "touchstart", e => {
+  if (e.touches.length === 1) { tx = e.touches[0].clientX; ty = e.touches[0].clientY; }
+}, { passive: true });
+on(book, "touchend", e => {
+  const dx = (e.changedTouches[0]?.clientX || 0) - tx, dy = (e.changedTouches[0]?.clientY || 0) - ty;
+  if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 35) go(dx < 0 ? "next" : "prev");
+  tx = ty = 0;
+}, { passive: true });
 
 /* ── ZOOM & PAN ── */
-let pan={x:0,y:0},pMax={x:0,y:0},drag=null,pinch=null;
-const getZ=()=>parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--zoom"))||1;
-const applyPan=()=>{
-  document.documentElement.style.setProperty("--px",pan.x.toFixed(1)+"px");
-  document.documentElement.style.setProperty("--py",pan.y.toFixed(1)+"px");
+const applyPan = () => { setCSS("--px", pan.x.toFixed(1) + "px"); setCSS("--py", pan.y.toFixed(1) + "px"); };
+const panClamp = () => {
+  const z = getZ(), br = book.getBoundingClientRect(), pr = ped.getBoundingClientRect();
+  pMax.x = Math.max(0, (br.width * z - pr.width) / 2);
+  pMax.y = Math.max(0, (br.height * z - pr.height) / 2);
+  pan.x = clamp(pan.x, -pMax.x, pMax.x);
+  pan.y = clamp(pan.y, -pMax.y, pMax.y);
+  applyPan();
 };
-const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
-const panClamp=()=>{
-  const z=getZ(),br=book.getBoundingClientRect(),pr=ped.getBoundingClientRect();
-  pMax.x=Math.max(0,(br.width*z-pr.width)/2); pMax.y=Math.max(0,(br.height*z-pr.height)/2);
-  pan.x=clamp(pan.x,-pMax.x,pMax.x); pan.y=clamp(pan.y,-pMax.y,pMax.y); applyPan();
-};
-const pannableState=()=>zw.classList.toggle("grab",getZ()>1.001&&(pMax.x>0||pMax.y>0));
-const setZ=v=>{
-  const z=Math.max(.6,Math.min(2.5,+v));
-  document.documentElement.style.setProperty("--zoom",z);
-  zr.value=z; zl.textContent=Math.round(z*100)+"%";
-  if(z<=1.001){pan.x=pan.y=0;}
-  panClamp(); pannableState();
+const pannableState = () => zw.classList.toggle("grab", getZ() > 1.001 && (pMax.x > 0 || pMax.y > 0));
+const updatePanState = () => { panClamp(); pannableState(); };
+
+const setZ = v => {
+  const z = Math.max(.6, Math.min(2.5, +v));
+  setCSS("--zoom", z);
+  zr.value = z; zl.textContent = Math.round(z * 100) + "%";
+  if (z <= 1.001) { pan.x = pan.y = 0; }
+  updatePanState();
 };
 
-zr.addEventListener("input",e=>setZ(e.target.value));
-$("zp").addEventListener("click",()=>setZ(getZ()+.1));
-$("zm").addEventListener("click",()=>setZ(getZ()-.1));
-zw.addEventListener("dblclick",()=>setZ(1));
+on(zr, "input", e => setZ(e.target.value));
+on(zpBtn, "click", () => setZ(getZ() + .1));
+on(zmBtn, "click", () => setZ(getZ() - .1));
+on(zw, "dblclick", () => setZ(1));
 
-ped.addEventListener("wheel",e=>{
-  if(e.ctrlKey||e.metaKey){e.preventDefault();setZ(getZ()-e.deltaY*.001);return;}
-  const z=getZ(); if(z<=1.001)return;
-  pan.x=clamp(pan.x-(e.shiftKey?e.deltaY:e.deltaX)*.8,-pMax.x,pMax.x);
-  pan.y=clamp(pan.y-(e.shiftKey?0:e.deltaY)*.8,-pMax.y,pMax.y);
+on(ped, "wheel", e => {
+  if (e.ctrlKey || e.metaKey) { e.preventDefault(); setZ(getZ() - e.deltaY * .001); return; }
+  const z = getZ(); if (z <= 1.001) return;
+  pan.x = clamp(pan.x - (e.shiftKey ? e.deltaY : e.deltaX) * .8, -pMax.x, pMax.x);
+  pan.y = clamp(pan.y - (e.shiftKey ? 0 : e.deltaY) * .8, -pMax.y, pMax.y);
   applyPan(); e.preventDefault();
-},{passive:false});
+}, { passive: false });
 
-ped.addEventListener("mousedown",e=>{if(getZ()<=1.001||e.button)return;drag={sx:e.clientX,sy:e.clientY,ox:pan.x,oy:pan.y};zw.classList.add("drag");e.preventDefault();});
-window.addEventListener("mousemove",e=>{if(!drag)return;pan.x=clamp(drag.ox+e.clientX-drag.sx,-pMax.x,pMax.x);pan.y=clamp(drag.oy+e.clientY-drag.sy,-pMax.y,pMax.y);applyPan();});
-window.addEventListener("mouseup",()=>{drag=null;zw.classList.remove("drag");});
+on(ped, "mousedown", e => {
+  if (getZ() <= 1.001 || e.button) return;
+  drag = { sx: e.clientX, sy: e.clientY, ox: pan.x, oy: pan.y }; zw.classList.add("drag"); e.preventDefault();
+});
+on(window, "mousemove", e => {
+  if (!drag) return;
+  pan.x = clamp(drag.ox + e.clientX - drag.sx, -pMax.x, pMax.x);
+  pan.y = clamp(drag.oy + e.clientY - drag.sy, -pMax.y, pMax.y);
+  applyPan();
+});
+on(window, "mouseup", () => { drag = null; zw.classList.remove("drag"); });
 
-ped.addEventListener("touchstart",e=>{
-  if(e.touches.length===2){const dx=e.touches[0].clientX-e.touches[1].clientX,dy=e.touches[0].clientY-e.touches[1].clientY;pinch={d:Math.hypot(dx,dy),z:getZ()};return;}
-  if(getZ()<=1.001||e.touches.length!==1)return;
-  const t=e.touches[0];drag={sx:t.clientX,sy:t.clientY,ox:pan.x,oy:pan.y};zw.classList.add("drag");
-},{passive:true});
-ped.addEventListener("touchmove",e=>{
-  if(e.touches.length===2&&pinch){e.preventDefault();const dx=e.touches[0].clientX-e.touches[1].clientX,dy=e.touches[0].clientY-e.touches[1].clientY;setZ(pinch.z*(Math.hypot(dx,dy)/pinch.d));return;}
-  if(!drag||e.touches.length!==1)return;
-  const t=e.touches[0];pan.x=clamp(drag.ox+t.clientX-drag.sx,-pMax.x,pMax.x);pan.y=clamp(drag.oy+t.clientY-drag.sy,-pMax.y,pMax.y);applyPan();
-},{passive:false});
-ped.addEventListener("touchend",e=>{if(e.touches.length<2)pinch=null;if(!drag)return;drag=null;zw.classList.remove("drag");},{passive:true});
+on(ped, "touchstart", e => {
+  if (e.touches.length === 2) {
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    pinch = { d: Math.hypot(dx, dy), z: getZ() }; return;
+  }
+  if (getZ() <= 1.001 || e.touches.length !== 1) return;
+  const t = e.touches[0]; drag = { sx: t.clientX, sy: t.clientY, ox: pan.x, oy: pan.y }; zw.classList.add("drag");
+}, { passive: true });
+
+on(ped, "touchmove", e => {
+  if (e.touches.length === 2 && pinch) {
+    e.preventDefault();
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    setZ(pinch.z * (Math.hypot(dx, dy) / pinch.d)); return;
+  }
+  if (!drag || e.touches.length !== 1) return;
+  const t = e.touches[0];
+  pan.x = clamp(drag.ox + t.clientX - drag.sx, -pMax.x, pMax.x);
+  pan.y = clamp(drag.oy + t.clientY - drag.sy, -pMax.y, pMax.y);
+  applyPan();
+}, { passive: false });
+
+on(ped, "touchend", e => { if (e.touches.length < 2) pinch = null; if (!drag) return; drag = null; zw.classList.remove("drag"); }, { passive: true });
 
 /* ── PLEIN ÉCRAN ── */
-$("fs").addEventListener("click",()=>document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen().catch(()=>{}));
-document.addEventListener("fullscreenchange",()=>setTimeout(fit,80));
+on(fsBtn, "click", () => document.fullscreenElement
+  ? document.exitFullscreen()
+  : document.documentElement.requestFullscreen().catch(() => {}));
+on(document, "fullscreenchange", () => setTimeout(fit, 80));
 
 /* ── INIT ── */
 fit(); setZ(1); render();
-setTimeout(()=>{fit();panClamp();pannableState();},0);
+setTimeout(() => { fit(); updatePanState(); }, 0);
 </script>
 </body>
 </html>
